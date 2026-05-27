@@ -23,8 +23,17 @@ struct BMPImage
     uint32_t height;
     
     std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B - fila 0: arriba de la imagen
-
+    
+    /**
+     * @brief Construct a new BMPImage object
+     * 
+     */
     BMPImage(): width(0), height(0) {};
+    
+    /**
+     * @brief Destroy the BMPImage object
+     * 
+     */
     ~BMPImage() {};
 };
 
@@ -32,12 +41,32 @@ struct BMPImage
  * @brief Clase que representa el encoder RLE.
  * 
  */
-class RLE 
+class EncoderRLE 
 {
     private:
-        // TODO: Definir
+        BMPImage img; // Imagen leida
+
+        /**
+         * @brief Funcion de emision de runs segun el formato especificado.
+         * 
+         * @param out es una referencia a un vector donde agregar el run codificado.
+         * @param count es el numero de conteo de pixeles.
+         * @param value es el valor del pixel contabilizado.
+         */
+        void emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value); 
+
     public:
-        // TODO: Constructor y destructor de la clase
+        /**
+         * @brief Construct a new Encoder R L E object
+         * 
+         */
+        EncoderRLE(){};
+        
+        /**
+         * @brief Destroy the Encoder R L E object
+         * 
+         */
+        ~EncoderRLE(){};
 
         /**
          * @brief Funcion de lectura de un archivo BMP.
@@ -45,8 +74,7 @@ class RLE
          * @param path es la direccion del archivo.
          * @param img es una estructura del tipo imagen.
          */
-        void read_bmp(const std::filesystem::path& path, BMPImage& img);
-
+        void read_bmp(const std::filesystem::path& path);
 
 };
 

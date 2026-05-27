@@ -43,7 +43,7 @@ static constexpr uint8_t RUN_LONG_CODE      = 0x40;
 static constexpr uint8_t LITERAL_SHORT_CODE = 0x80;
 static constexpr uint8_t LITERAL_LINE_CODE  = 0xC0;
 
-void RLE::read_bmp(const std::filesystem::path& path, BMPImage& img) 
+void EncoderRLE::read_bmp(const std::filesystem::path& path) 
 {
     // Abrir el archivo. Manejar posibles errores.
     std::ifstream file(path, std::ios::binary);
@@ -117,17 +117,17 @@ void RLE::read_bmp(const std::filesystem::path& path, BMPImage& img)
     }
 
     // Dimensiones de la imagen leida
-    img.width  = static_cast<uint32_t>(std::abs(width_s));
-    img.height = static_cast<uint32_t>(std::abs(height_s));
+    this->img.width  = static_cast<uint32_t>(std::abs(width_s));
+    this->img.height = static_cast<uint32_t>(std::abs(height_s));
 
     // Dimensionar los vectores de pixeles
-    uint64_t npixels = static_cast<uint64_t>(img.width) * static_cast<uint64_t>(img.height);
-    img.r.resize(npixels);
-    img.g.resize(npixels);
-    img.b.resize(npixels);
+    uint64_t npixels = static_cast<uint64_t>(this->img.width) * static_cast<uint64_t>(this->img.height);
+    this->img.r.resize(npixels);
+    this->img.g.resize(npixels);
+    this->img.b.resize(npixels);
 
     // Cada fila de píxeles está alineada a 4 bytes
-    uint32_t row_bytes_raw = img.width * CHANNELS;        // Cantidad de bytes por pixel
+    uint32_t row_bytes_raw = this->img.width * CHANNELS;        // Cantidad de bytes por pixel
     uint32_t row_stride    = (row_bytes_raw + 3) & ~3U;   // Redondear al proximo multiplo de 4 (i = (i + 3) / 4 * 4;): 
                                                           // https://stackoverflow.com/questions/2022179/c-quick-calculation-of-next-multiple-of-4
     std::vector<uint8_t> row_buf(row_stride);             // Buffer para almacenar las filas.
@@ -136,7 +136,7 @@ void RLE::read_bmp(const std::filesystem::path& path, BMPImage& img)
 
     uint64_t base = 0;
     uint32_t dst_row = 0; 
-    for (uint32_t row = 0; row < img.height; ++row) 
+    for (uint32_t row = 0; row < this->img.height; ++row) 
     {
         file.read(reinterpret_cast<char*>(row_buf.data()), row_stride);
 
@@ -152,22 +152,22 @@ void RLE::read_bmp(const std::filesystem::path& path, BMPImage& img)
         }
         else
         {
-            dst_row = img.height - 1 - row; // Inversion
+            dst_row = this->img.height - 1 - row; // Inversion
         }
 
-        uint64_t base = static_cast<uint64_t>(dst_row) * static_cast<uint64_t>(img.width);
+        uint64_t base = static_cast<uint64_t>(dst_row) * static_cast<uint64_t>(this->img.width);
 
-        for (uint32_t col = 0; col < img.width; ++col) 
+        for (uint32_t col = 0; col < this->img.width; ++col) 
         {
             // BMP almacena BGR
-            img.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
-            img.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
-            img.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
+            this->img.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
+            this->img.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
+            this->img.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
         }
     }
 }
 
-void emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value) 
+void EncoderRLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value) 
 {
     // Emitir en bloques de RUN_LONG_MAX si count > RUN_LONG_MAX
     while (count > 0) 
