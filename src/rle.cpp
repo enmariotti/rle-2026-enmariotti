@@ -25,8 +25,6 @@ static constexpr uint32_t RUN_LONG_MAX      = 16447;   // 63 + 16384 (14 bits + 
 static constexpr uint32_t LITERAL_SHORT_MAX = 63;
 static constexpr uint32_t LITERAL_LONG_MAX  = 16447;
 
-static constexpr uint32_t HEADER_SIZE  = 49;
-
 static constexpr uint8_t CHANNELS    = 3;
 static constexpr uint8_t CHANNEL_B   = 0;
 static constexpr uint8_t CHANNEL_G   = 1;
@@ -49,13 +47,41 @@ static constexpr uint8_t LITERAL_LONG_CODE  = 0xC0;
 
 static constexpr uint32_t RUN_THRESHOLD  = 3; // Minimo valor de conteo para que existe compresion no nula en un run.
 
+static constexpr uint32_t HEADER_SIZE = 49;
+static constexpr uint32_t IDENTIFIER  = 0xCAFECAFE;
+static constexpr uint8_t  VERSION     = 0x01;
+
+static void write_u32_le(std::ostream& out, const uint32_t word)
+{
+    uint8_t buf[4] = { static_cast<uint8_t>(word),
+                       static_cast<uint8_t>(word >> 8),
+                       static_cast<uint8_t>(word >> 16),
+                       static_cast<uint8_t>(word >> 24)
+                    };
+    out.write(reinterpret_cast<char*>(buf), 4);
+}
+
+static void write_u64_le(std::ostream& out, uint64_t word) 
+{
+    uint8_t buf[8] = { static_cast<uint8_t>(word),
+                       static_cast<uint8_t>(word >> 8),
+                       static_cast<uint8_t>(word >> 16),
+                       static_cast<uint8_t>(word >> 24),
+                       static_cast<uint8_t>(word >> 32),
+                       static_cast<uint8_t>(word >> 40),
+                       static_cast<uint8_t>(word >> 48),
+                       static_cast<uint8_t>(word >> 56)
+                    };
+    out.write(reinterpret_cast<char*>(buf), 8);
+}
+
 void RLE::read_bmp(const std::filesystem::path& path) 
 {
     // Abrir el archivo. Manejar posibles errores.
     std::ifstream file(path, std::ios::binary);
     if (!file)
     {
-        throw std::runtime_error( "ERROR. No se pudo abrir: " + path.filename().string() );  
+        throw std::runtime_error( "No se pudo abrir: " + path.filename().string() );  
     } 
 
     // Manejar header de imagen BMP (14 bytes)
@@ -70,7 +96,7 @@ void RLE::read_bmp(const std::filesystem::path& path)
     // Signature 	2 bytes 	0000h 	'BM' 
     if (header[0] != 'B' || header[1] != 'M')
     {
-        throw std::runtime_error( "ERROR. No es un archivo BMP: " + path.filename().string() );
+        throw std::runtime_error( "No es un archivo BMP: " + path.filename().string() );
     }
 
     // DataOffset 	4 bytes 	000Ah 	Offset from beginning of file to the beginning of the bitmap data
@@ -115,11 +141,11 @@ void RLE::read_bmp(const std::filesystem::path& path)
 
     if (bpp != BPP_RGB_24)
     {
-        throw std::runtime_error("ERROR. Solo se soportan BMP de 24 bits por pixel.");
+        throw std::runtime_error("Solo se soportan BMP de 24 bits por pixel.");
     }
     if (compression != BI_RGB)
     {
-        throw std::runtime_error("ERROR. Solo se soportan BMP sin compresión (BI_RGB).");
+        throw std::runtime_error("Solo se soportan BMP sin compresión (BI_RGB).");
     }
 
     // Dimensiones de la imagen leida
@@ -128,9 +154,9 @@ void RLE::read_bmp(const std::filesystem::path& path)
 
     // Dimensionar los vectores de pixeles
     uint64_t npixels = static_cast<uint64_t>(this->img.width) * static_cast<uint64_t>(this->img.height);
-    this->img.r.resize(npixels);
-    this->img.g.resize(npixels);
-    this->img.b.resize(npixels);
+    this->img.channel.r.resize(npixels);
+    this->img.channel.g.resize(npixels);
+    this->img.channel.b.resize(npixels);
 
     // Cada fila de píxeles está alineada a 4 bytes
     uint32_t row_bytes_raw = this->img.width * CHANNELS;  // Cantidad de bytes por pixel
@@ -148,7 +174,7 @@ void RLE::read_bmp(const std::filesystem::path& path)
 
         if (!file)
         {
-            throw std::runtime_error("ERROR. Error leyendo datos de pixeles");
+            throw std::runtime_error("Error leyendo datos de pixeles");
         } 
 
         // Fila destino: si esta invertida, mapear de abajo hacia arriba
@@ -166,9 +192,9 @@ void RLE::read_bmp(const std::filesystem::path& path)
         for (uint32_t col = 0; col < this->img.width; ++col) 
         {
             // BMP almacena BGR
-            this->img.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
-            this->img.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
-            this->img.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
+            this->img.channel.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
+            this->img.channel.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
+            this->img.channel.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
         }
     }
 }
@@ -270,17 +296,37 @@ void RLE::compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_
         } 
         else 
         {
-            // Run sin ganancia: igual a 2 pixeles. Es mejor tomarlo como run y no como literal.
+            // Run problematico: igual a 2 pixeles. 
+            // A veces es mejor tomarlo como literal y a veces es mejor tomarlo como run.
             if (run_len == 2) 
             {
-                flush_literal();
-                emit_run(out, 2, value);
+                if (lit_buf.empty()) 
+                {
+                    // flush_literal(); // No realiza ninguna accion. 
+                    emit_run(out, 2, value);
+                } 
+                else 
+                {
+                    // Hay literal abierto: Absorber en el literal evita cerrar y reabrir.
+                    lit_buf.push_back(value);
+                    if (lit_buf.size() == LITERAL_LONG_MAX)
+                    {
+                        flush_literal();
+                    } 
+                    
+                    // Repite, para nos desbordar lit_buf y penalizar por re-dimensionamiento.
+                    lit_buf.push_back(value);
+                    if (lit_buf.size() == LITERAL_LONG_MAX)
+                    {
+                        flush_literal();
+                    } 
+                }
             }
             // Run con perdida: es igual a 1 pixel. El tamaño resultante es el doble. 
             // Se acumula en lit_buf para agruparse con otros pixeles.
             else
             {
-                lit_buf.push_back(in[i]);
+                lit_buf.push_back(value);
                 if (lit_buf.size() == LITERAL_LONG_MAX) 
                 {
                     flush_literal();
@@ -298,17 +344,17 @@ bool RLE::encode(const std::filesystem::path& path)
     {
         std::cout << "Leyendo BMP...\n";
         read_bmp(path);
-        std::cout << "  " << img.width << "×" << img.height
-                  << " pixeles (" << img.width * img.height * CHANNELS << " bytes)\n";
+        std::cout << "  " << this->img.width << "×" << this->img.height
+                  << " pixeles (" << this->img.width * this->img.height * CHANNELS << " bytes)\n";
 
-        const uint64_t npixels = static_cast<uint64_t>(img.width) * img.height;
+        const uint64_t npixels = static_cast<uint64_t>(this->img.width) * static_cast<uint64_t>(this->img.height);
         
         std::cout << "Comprimiendo canales (3 hilos)...\n";
         std::string err_r, err_g, err_b;
 
         auto compress_safe = [&](std::vector<uint8_t>& out,
                                  const uint8_t* in,
-                                 uint64_t len,
+                                 const uint64_t len,
                                  std::string& err) 
         {
             try 
@@ -325,9 +371,9 @@ bool RLE::encode(const std::filesystem::path& path)
             }
         };
 
-        std::thread t_r(compress_safe, std::ref(out_r), img.r.data(), npixels, std::ref(err_r));
-        std::thread t_g(compress_safe, std::ref(out_g), img.g.data(), npixels, std::ref(err_g));
-        std::thread t_b(compress_safe, std::ref(out_b), img.b.data(), npixels, std::ref(err_b));
+        std::thread t_r(compress_safe, std::ref(this->out.r), this->img.channel.r.data(), npixels, std::ref(err_r));
+        std::thread t_g(compress_safe, std::ref(this->out.g), this->img.channel.g.data(), npixels, std::ref(err_g));
+        std::thread t_b(compress_safe, std::ref(this->out.b), this->img.channel.b.data(), npixels, std::ref(err_b));
 
         t_r.join(); t_g.join(); t_b.join();
 
@@ -337,12 +383,12 @@ bool RLE::encode(const std::filesystem::path& path)
 
         std::cout << "Estadisticas...\n";
         uint64_t total_in  = npixels * CHANNELS;
-        uint64_t total_out = HEADER_SIZE + out_r.size() + out_g.size() + out_b.size();
+        uint64_t total_out = HEADER_SIZE + this->out.r.size() + this->out.g.size() + this->out.b.size();
         double ratio = static_cast<double>(total_in) / static_cast<double>(total_out);
 
-        std::cout << "  Canal R: " << out_r.size() << " bytes\n";
-        std::cout << "  Canal G: " << out_g.size() << " bytes\n";
-        std::cout << "  Canal B: " << out_b.size() << " bytes\n";
+        std::cout << "  Canal R: " << this->out.r.size() << " bytes\n";
+        std::cout << "  Canal G: " << this->out.g.size() << " bytes\n";
+        std::cout << "  Canal B: " << this->out.b.size() << " bytes\n";
         std::cout << "  Total entrada:  " << total_in  << " bytes\n";
         std::cout << "  Total salida:   " << total_out << " bytes\n";
         std::cout << "  Ratio:          " << ratio     << ":1\n";
@@ -356,15 +402,68 @@ bool RLE::encode(const std::filesystem::path& path)
     return EXIT_SUCCESS;
 }
 
-// TODO: Capturar error si la funcion encode no fue llamada primero. Idem funcion anterior.
-bool RLE::write_file(const std::filesystem::path& path)
+bool RLE::write_prle(const std::filesystem::path& path)
 {
-    
+    try
+    {
+        // No genera el archivo, si no se realizo un encode() antes.
+        if ( this->out.r.empty() && this->out.g.empty() && this->out.b.empty() )
+        {
+            throw std::runtime_error("Todos los canales vacios.");
+        }
+
+        // Abrir el archivo. Manejar posibles errores.
+        std::ofstream file(path, std::ios::binary);
+        if (!file)
+        {
+            throw std::runtime_error( "No se pudo abrir: " + path.filename().string() );  
+        }
+        
+        // Header: 4 + 1 + 4 + 4 + (8 + 4) * 3 = 49 bytes
+        file.write(reinterpret_cast<const char*>(&IDENTIFIER), 4);
+        file.write(reinterpret_cast<const char*>(&VERSION), 1);
+
+        // Ancho y alto originales
+        write_u32_le(file, this->img.width);
+        write_u32_le(file, this->img.height);
+
+        uint64_t offset_r    = HEADER_SIZE;
+        uint64_t offset_g    = offset_r + this->out.r.size();
+        uint64_t offset_b    = offset_g + this->out.g.size();
+
+        // R: Offset y tamaño
+        write_u64_le(file, offset_r);
+        write_u32_le(file, static_cast<uint32_t>(this->out.r.size()));
+        
+        // G: Offset y tamaño
+        write_u64_le(file, offset_g);
+        write_u32_le(file, static_cast<uint32_t>(this->out.g.size()));
+        
+        // B: Offset y tamaño    
+        write_u64_le(file, offset_b);
+        write_u32_le(file, static_cast<uint32_t>(this->out.b.size()));
+
+        file.write(reinterpret_cast<const char*>(this->out.r.data()), this->out.r.size());
+        file.write(reinterpret_cast<const char*>(this->out.g.data()), this->out.r.size());
+        file.write(reinterpret_cast<const char*>(this->out.b.data()), this->out.r.size());
+
+    } 
+    catch (const std::exception& e) 
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
 
-// TODO: Solo debugging. Llevar al archivo main.cpp
+// TODO: Solo debugging. Llevar al archivo main.cpp y parsear argumentos.
 int main()
 {
     RLE rle;
+    const std::filesystem::path in = "05_gradient.bmp";
+    const std::filesystem::path out = "05_gradient.prle";
+    rle.encode(in);
+    rle.write_prle(out);
+    
     return 0;
 }

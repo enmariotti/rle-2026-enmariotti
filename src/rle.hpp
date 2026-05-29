@@ -13,6 +13,28 @@
 #include <vector>
 #include <filesystem>
 
+
+/**
+ * @brief Estructura que representa la informacion por canales.
+ * 
+ */
+struct Channel 
+{
+    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B - fila 0: arriba de la imagen
+
+    /**
+     * @brief Construct a new Channels object
+     * 
+     */
+    Channel() {};
+    
+    /**
+     * @brief Destroy the Channels object
+     * 
+     */
+    ~Channel() {};
+};
+
 /**
  * @brief Estructura que representa una imagen BMP.
  * 
@@ -22,7 +44,7 @@ struct BMPImage
     uint32_t width;
     uint32_t height;
     
-    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B - fila 0: arriba de la imagen
+    Channel channel;
     
     /**
      * @brief Construct a new BMPImage object
@@ -44,8 +66,8 @@ struct BMPImage
 class RLE 
 {
     private:
-        BMPImage img;                             // Imagen leida
-        std::vector<uint8_t> out_r, out_g, out_b; // Canales con la informacion codificada/decodificada
+        BMPImage img; // Imagen leida
+        Channel out; // Canales con la informacion codificada
 
         /**
          * @brief Funcion de lectura de un archivo BMP.
@@ -104,7 +126,7 @@ class RLE
          */
         bool encode(const std::filesystem::path& path);
 
-        bool write_file(const std::filesystem::path& path);
+        bool write_prle(const std::filesystem::path& path);
         
 };
 
