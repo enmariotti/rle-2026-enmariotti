@@ -3,10 +3,10 @@
  * Planar RLE Encoder - BMP color (24-bit, RGB 8-bit)
  *
  * Formato de canal:
- *   Run corto:     [00 cccccc][value]            count = 1..63
- *   Run largo:     [01 CCCCCC][cccccccc][value]  count = 64..16447  (offset + 64)
- *   Literal corto: [10 cccccc][value]            count = 2..63
- *   Literal largo: [11 CCCCCC][cccccccc][value]  count = 64..16447  (offset + 64)
+ *   Run corto:     [00 cccccc][value]               count = 1..63
+ *   Run largo:     [01 CCCCCC][cccccccc][value]     count = 64..16447  (offset + 64)
+ *   Literal corto: [10 cccccc][n values]            count = 1..63
+ *   Literal largo: [11 CCCCCC][cccccccc][n values]  count = 64..16447  (offset + 64)
  *
  *   count = 0 en cualquier tipo -> reservado, nunca emitido.
  *   Pixel aislado               -> run de count = 1 o literal de count = 1.
@@ -20,8 +20,12 @@
  *   [datos R][datos G][datos B]
  */
 
-static constexpr uint32_t RUN_SHORT_MAX  = 63;      // 6 bits
-static constexpr uint32_t RUN_LONG_MAX   = 16447;   // 63 + 16384 (14 bits + offset 64)
+static constexpr uint32_t RUN_SHORT_MAX     = 63;      // Valor representable con 6 bits
+static constexpr uint32_t RUN_LONG_MAX      = 16447;   // 63 + 16384 (14 bits + offset 64)
+static constexpr uint32_t LITERAL_SHORT_MAX = 63;
+static constexpr uint32_t LITERAL_LONG_MAX  = 16447;
+
+static constexpr uint32_t HEADER_SIZE  = 49;
 
 static constexpr uint8_t CHANNELS    = 3;
 static constexpr uint8_t CHANNEL_B   = 0;
@@ -41,9 +45,11 @@ static constexpr uint8_t FORMAT_MASK        = 0x3F;
 static constexpr uint8_t RUN_SHORT_CODE     = 0x00;
 static constexpr uint8_t RUN_LONG_CODE      = 0x40;
 static constexpr uint8_t LITERAL_SHORT_CODE = 0x80;
-static constexpr uint8_t LITERAL_LINE_CODE  = 0xC0;
+static constexpr uint8_t LITERAL_LONG_CODE  = 0xC0;
 
-void EncoderRLE::read_bmp(const std::filesystem::path& path) 
+static constexpr uint32_t RUN_THRESHOLD  = 3; // Minimo valor de conteo para que existe compresion no nula en un run.
+
+void RLE::read_bmp(const std::filesystem::path& path) 
 {
     // Abrir el archivo. Manejar posibles errores.
     std::ifstream file(path, std::ios::binary);
@@ -127,7 +133,7 @@ void EncoderRLE::read_bmp(const std::filesystem::path& path)
     this->img.b.resize(npixels);
 
     // Cada fila de píxeles está alineada a 4 bytes
-    uint32_t row_bytes_raw = this->img.width * CHANNELS;        // Cantidad de bytes por pixel
+    uint32_t row_bytes_raw = this->img.width * CHANNELS;  // Cantidad de bytes por pixel
     uint32_t row_stride    = (row_bytes_raw + 3) & ~3U;   // Redondear al proximo multiplo de 4 (i = (i + 3) / 4 * 4;): 
                                                           // https://stackoverflow.com/questions/2022179/c-quick-calculation-of-next-multiple-of-4
     std::vector<uint8_t> row_buf(row_stride);             // Buffer para almacenar las filas.
@@ -167,7 +173,7 @@ void EncoderRLE::read_bmp(const std::filesystem::path& path)
     }
 }
 
-void EncoderRLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value) 
+void RLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value) 
 {
     // Emitir en bloques de RUN_LONG_MAX si count > RUN_LONG_MAX
     while (count > 0) 
@@ -178,7 +184,7 @@ void EncoderRLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t val
         if (chunk <= RUN_SHORT_MAX) 
         {
             // Run corto: [00 cccccc][value]
-            uint32_t encoded = RUN_SHORT_CODE | (static_cast<uint8_t>(chunk) & FORMAT_MASK); // b7=0, b6=0
+            uint8_t encoded = RUN_SHORT_CODE | (static_cast<uint8_t>(chunk) & FORMAT_MASK);
             out.push_back(encoded);  
             out.push_back(value);
         }
@@ -193,4 +199,172 @@ void EncoderRLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t val
             out.push_back(value);
         }
     }
+}
+
+void RLE::emit_literal(std::vector<uint8_t>& out, uint32_t count, const uint8_t* data) 
+{
+    // Emitir en bloques de LITERAL_LONG_MAX si count > LITERAL_LONG_MAX
+    uint32_t offset = 0;
+    while (offset < count)
+    {
+        uint32_t chunk = std::min(count - offset, LITERAL_LONG_MAX); // Largo de cout o LITERAL_LONG_MAX
+
+        if (chunk <= LITERAL_SHORT_MAX) 
+        {
+            // Literal corto: [10 cccccc][n values]
+            uint8_t encoded = LITERAL_SHORT_CODE | (static_cast<uint8_t>(chunk) & FORMAT_MASK);
+            out.push_back(encoded);
+        } 
+        else 
+        {
+            // Literal largo: [11 CCCCCC][cccccccc][n values]
+            uint32_t encoded = chunk - (RUN_SHORT_MAX + 1); // offset + 64
+            uint8_t  high = LITERAL_LONG_CODE | (static_cast<uint8_t>(encoded >> 8) & FORMAT_MASK);
+            uint8_t  low = static_cast<uint8_t>(encoded & 0xFF);
+            out.push_back(high);
+            out.push_back(low);
+        }
+        out.insert(out.end(), data + offset, data + offset + chunk);
+        offset += chunk;
+    }
+}
+
+void RLE::compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_t len)
+{
+    out.clear();          // Limpiar estado
+    out.reserve(len);     // Estimacion inicial de compromiso, el vector puede alocar mas elementos dinamicamente.
+
+    std::vector<uint8_t> lit_buf;
+    lit_buf.clear();
+    lit_buf.reserve(LITERAL_LONG_MAX);
+
+    // Guardar token de literales con lo almacenado en el buffer
+    auto flush_literal = [&]() 
+    {
+        if (!lit_buf.empty())
+        {
+            emit_literal(out, static_cast<uint32_t>(lit_buf.size()), lit_buf.data());
+            lit_buf.clear();
+        }
+    };
+
+    uint64_t i = 0;
+    while (i < len) 
+    {
+        // Medir el run que empieza en i
+        uint8_t  value   = in[i];
+        uint64_t run_end = i + 1;
+
+        // Iteramos moviendo run_end sobre los datos
+        while (run_end < len && in[run_end] == value)
+        {
+            ++run_end;
+        }
+        uint64_t run_len = run_end - i;
+
+        if (run_len >= RUN_THRESHOLD) 
+        {
+            // Run rentable: mayor o igual a 3 pixeles
+            flush_literal();
+            emit_run(out, static_cast<uint32_t>(std::min(run_len, static_cast<uint64_t>(UINT32_MAX))), value);
+        } 
+        else 
+        {
+            // Run sin ganancia: igual a 2 pixeles. Es mejor tomarlo como run y no como literal.
+            if (run_len == 2) 
+            {
+                flush_literal();
+                emit_run(out, 2, value);
+            }
+            // Run con perdida: es igual a 1 pixel. El tamaño resultante es el doble. 
+            // Se acumula en lit_buf para agruparse con otros pixeles.
+            else
+            {
+                lit_buf.push_back(in[i]);
+                if (lit_buf.size() == LITERAL_LONG_MAX) 
+                {
+                    flush_literal();
+                }
+            }
+        }
+        i = run_end;
+    }
+    flush_literal();
+}
+
+bool RLE::encode(const std::filesystem::path& path)
+{
+    try 
+    {
+        std::cout << "Leyendo BMP...\n";
+        read_bmp(path);
+        std::cout << "  " << img.width << "×" << img.height
+                  << " pixeles (" << img.width * img.height * CHANNELS << " bytes)\n";
+
+        const uint64_t npixels = static_cast<uint64_t>(img.width) * img.height;
+        
+        std::cout << "Comprimiendo canales (3 hilos)...\n";
+        std::string err_r, err_g, err_b;
+
+        auto compress_safe = [&](std::vector<uint8_t>& out,
+                                 const uint8_t* in,
+                                 uint64_t len,
+                                 std::string& err) 
+        {
+            try 
+            {
+                compress_channel(out, in, len);
+            } 
+            catch (const std::exception& e)
+            {
+                err = e.what();
+            }
+            catch (...) 
+            {
+                err = "Error desconocido.";
+            }
+        };
+
+        std::thread t_r(compress_safe, std::ref(out_r), img.r.data(), npixels, std::ref(err_r));
+        std::thread t_g(compress_safe, std::ref(out_g), img.g.data(), npixels, std::ref(err_g));
+        std::thread t_b(compress_safe, std::ref(out_b), img.b.data(), npixels, std::ref(err_b));
+
+        t_r.join(); t_g.join(); t_b.join();
+
+        if (!err_r.empty()) throw std::runtime_error("Canal R: " + err_r);
+        if (!err_g.empty()) throw std::runtime_error("Canal G: " + err_g);
+        if (!err_b.empty()) throw std::runtime_error("Canal B: " + err_b);
+
+        std::cout << "Estadisticas...\n";
+        uint64_t total_in  = npixels * CHANNELS;
+        uint64_t total_out = HEADER_SIZE + out_r.size() + out_g.size() + out_b.size();
+        double ratio = static_cast<double>(total_in) / static_cast<double>(total_out);
+
+        std::cout << "  Canal R: " << out_r.size() << " bytes\n";
+        std::cout << "  Canal G: " << out_g.size() << " bytes\n";
+        std::cout << "  Canal B: " << out_b.size() << " bytes\n";
+        std::cout << "  Total entrada:  " << total_in  << " bytes\n";
+        std::cout << "  Total salida:   " << total_out << " bytes\n";
+        std::cout << "  Ratio:          " << ratio     << ":1\n";
+
+    } 
+    catch (const std::exception& e) 
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}
+
+// TODO: Capturar error si la funcion encode no fue llamada primero. Idem funcion anterior.
+bool RLE::write_file(const std::filesystem::path& path)
+{
+    
+}
+
+// TODO: Solo debugging. Llevar al archivo main.cpp
+int main()
+{
+    RLE rle;
+    return 0;
 }
