@@ -174,6 +174,14 @@ class RLE
          * @return false si la tarea ejecuto con errores.
          */
         bool write_prle(const std::filesystem::path& path);
+
+        /**
+         * @brief Funcion de decodificacion de la imagen
+         * 
+         * @return true si la tarea ejecuto son errores.
+         * @return false si la tarea ejecuto con errores.
+         */
+        bool decode(const std::filesystem::path& path);
         
 };
 
