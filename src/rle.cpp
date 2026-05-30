@@ -51,7 +51,7 @@ static constexpr uint32_t HEADER_SIZE  = 49;
 static constexpr uint32_t IDENTIFIER   = 0xCAFECAFE;
 static constexpr uint8_t  VERSION      = 0x01;
 
-static void write_u32_le(std::ostream& out, const uint32_t word)
+static void write_u32_le(std::ofstream& out, const uint32_t word)
 {
     uint8_t buf[4] = { static_cast<uint8_t>(word),
                        static_cast<uint8_t>(word >> 8),
@@ -61,7 +61,17 @@ static void write_u32_le(std::ostream& out, const uint32_t word)
     out.write(reinterpret_cast<char*>(buf), 4);
 }
 
-static void write_u64_le(std::ostream& out, uint64_t word) 
+static void read_u32_le(std::ifstream& in, uint32_t word) 
+{
+    uint8_t buf[4];
+    in.read(reinterpret_cast<char*>(buf), 4);
+    word =  static_cast<uint32_t>(buf[0])         |
+            static_cast<uint32_t>(buf[1]) << 8    |
+            static_cast<uint32_t>(buf[2]) << 16   |
+            static_cast<uint32_t>(buf[3]) << 24;
+}
+
+static void write_u64_le(std::ofstream& out, uint64_t word) 
 {
     uint8_t buf[8] = { static_cast<uint8_t>(word),
                        static_cast<uint8_t>(word >> 8),
@@ -73,6 +83,104 @@ static void write_u64_le(std::ostream& out, uint64_t word)
                        static_cast<uint8_t>(word >> 56)
                     };
     out.write(reinterpret_cast<char*>(buf), 8);
+}
+
+static void read_u64_le(std::ifstream& in, uint64_t word) 
+{
+    uint8_t buf[8];
+    in.read(reinterpret_cast<char*>(buf), 8);
+    word =  static_cast<uint64_t>(buf[0])         |
+            static_cast<uint64_t>(buf[1]) << 8    |
+            static_cast<uint64_t>(buf[2]) << 16   |
+            static_cast<uint64_t>(buf[3]) << 24   |
+            static_cast<uint64_t>(buf[4]) << 32   |
+            static_cast<uint64_t>(buf[5]) << 40   |
+            static_cast<uint64_t>(buf[6]) << 48   |
+            static_cast<uint64_t>(buf[7]) << 56;
+}
+
+void RLE::read_prle(const std::filesystem::path& path) 
+{
+    // Abrir el archivo. Manejar posibles errores.
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+    {
+        throw std::runtime_error( "No se pudo abrir: " + path.filename().string() );  
+    } 
+
+    // Cantidad de bytes del archivo completo.
+    if (file.gcount() != HEADER_SIZE)
+    {
+        throw std::runtime_error("Archivo demasiado corto para contener un header válido");
+    }
+
+    file.seekg(0, std::ios::beg); // 0 bytes desde la posición inicial
+
+    // Identificador
+    uint32_t identifier;
+    read_u32_le(file, identifier);
+    if (identifier != IDENTIFIER)
+    {
+        throw std::runtime_error("Identificador invalido, no es un archivo .prle");
+    }
+
+    // Version
+    uint8_t version;
+    file.read(reinterpret_cast<char*>(&version), 1);
+    if (version != VERSION)
+    {
+        throw std::runtime_error("Versión de formato no soportada: " + std::to_string(version));
+    }
+
+    // Ancho y alto
+    read_u32_le(file, this->enc_in.width);
+    read_u32_le(file, this->enc_in.height);
+    
+    // Validar dimensiones
+    if (this->enc_in.width == 0 || this->enc_in.height == 0)
+    {
+        throw std::runtime_error("Dimensiones nulas en el header");
+    }
+
+    uint64_t npix_check = static_cast<uint64_t>(this->enc_in.width) * static_cast<uint64_t>(this->enc_in.height);
+    if (npix_check > 0x0FFFFFFFFFFFull)
+    {
+        throw std::runtime_error("Dimensiones excesivas en el header");
+    }
+
+    // Offsets y tamaños de cada canal
+    read_u64_le(file, this->enc_in.offset_r);
+    read_u32_le(file, this->enc_in.size_r);
+
+    read_u64_le(file, this->enc_in.offset_g);
+    read_u32_le(file, this->enc_in.size_g);
+
+    read_u64_le(file, this->enc_in.offset_b);
+    read_u32_le(file, this->enc_in.size_b);
+
+    // Validar que los offsets sean coherentes con el header
+    if (this->enc_in.offset_r < HEADER_SIZE)
+    {
+        throw std::runtime_error("offset_R inválido: solapa con el header");
+    }
+    if (this->enc_in.offset_g < this->enc_in.offset_r + this->enc_in.size_r)
+    {
+        throw std::runtime_error("offset_G inválido: solapa con datos R");
+    }
+    if (this->enc_in.offset_b < this->enc_in.offset_g + this->enc_in.size_g)
+    {
+        throw std::runtime_error("offset_B inválido: solapa con datos G");
+    }
+
+    file.seekg(this->enc_in.offset_r, std::ios::beg); // offset_r bytes desde la posición inicial
+    file.read(reinterpret_cast<char*>(this->enc_in.channel.r.data()), this->enc_in.size_r);
+    
+    file.seekg(this->enc_in.offset_g, std::ios::beg); // offset_g bytes desde la posición inicial
+    file.read(reinterpret_cast<char*>(this->enc_in.channel.g.data()), this->enc_in.size_g);
+    
+    file.seekg(this->enc_in.offset_b, std::ios::beg); // offset_b bytes desde la posición inicial
+    file.read(reinterpret_cast<char*>(this->enc_in.channel.b.data()), this->enc_in.size_b);
+
 }
 
 void RLE::read_bmp(const std::filesystem::path& path) 
@@ -460,6 +568,7 @@ bool RLE::write_prle(const std::filesystem::path& path)
 // TODO: Generar un README adecuado.
 // TODO: Generar un archivo Makefile.
 // TODO: Generar un bash para ejecutar los tests.
+// TODO: Generar imagen vacia para ver que no explote el codificador.
 // TODO: Agregar verificacion del CRC. Tal vez no tiene mucho sentido.
 int main()
 {

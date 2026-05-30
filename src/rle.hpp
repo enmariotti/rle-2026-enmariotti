@@ -60,6 +60,33 @@ struct BMPImage
 };
 
 /**
+ * @brief Estructura que representa un archivo PRLE.
+ * 
+ */
+struct PRLEFile 
+{
+    uint32_t width;
+    uint32_t height;
+    uint64_t offset_r;  uint32_t size_r;
+    uint64_t offset_g;  uint32_t size_g;
+    uint64_t offset_b;  uint32_t size_b;
+
+    Channel channel;
+    
+    /**
+     * @brief Construct a new PRLEFile object
+     * 
+     */
+    PRLEFile(): width(0), height(0) {};
+    
+    /**
+     * @brief Destroy the PRLEFile object
+     * 
+     */
+    ~PRLEFile() {};
+};
+
+/**
  * @brief Clase que representa el encoder RLE.
  * 
  */
@@ -69,14 +96,12 @@ class RLE
         BMPImage img_in;    // Imagen de entrada
         Channel  enc_out;   // Codificacion de salida
         
-        Channel  enc_in;     // Codificacion de entrada
+        PRLEFile  enc_in;     // Codificacion de entrada
         BMPImage img_out;    // Imagen de salida
 
         /**
          * @brief Funcion de lectura de un archivo BMP.
          * 
-         * @param path es la direccion del archivo.
-         * @param img es una estructura del tipo imagen.
          */
         void read_bmp(const std::filesystem::path& path);
 
@@ -85,7 +110,6 @@ class RLE
          * 
          * @param out es una referencia a un vector donde agregar el run codificado.
          * @param count es el numero de conteo de pixeles.
-         * @param value es el valor del pixel contabilizado.
          */
         void emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value);
         
@@ -103,9 +127,14 @@ class RLE
          * 
          * @param out es una referencia a un vector donde se encuentra la codificacion.
          * @param in  es un puntero a la data de los pixeles.
-         * @param len es la longitud del vector que contiene la informacion del canal.
          */
         void compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_t len);
+
+        /**
+         * @brief Funcion de lectura de un archivo PRLE.
+         * 
+         */
+        void read_prle(const std::filesystem::path& path); 
         
     public:
         /**
@@ -123,12 +152,16 @@ class RLE
         /**
          * @brief Funcion de codificacion de la imagen
          * 
-         * @param path es la direccion del archivo.
          * @return true si la tarea ejecuto son errores.
          * @return false si la tarea ejecuto con errores.
          */
         bool encode(const std::filesystem::path& path);
 
+        /**
+         * 
+         * @return true si la tarea ejecuto son errores.
+         * @return false si la tarea ejecuto con errores.
+         */
         bool write_prle(const std::filesystem::path& path);
         
 };
