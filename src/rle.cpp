@@ -47,9 +47,9 @@ static constexpr uint8_t LITERAL_LONG_CODE  = 0xC0;
 
 static constexpr uint32_t RUN_THRESHOLD  = 3; // Minimo valor de conteo para que existe compresion no nula en un run.
 
-static constexpr uint32_t HEADER_SIZE = 49;
-static constexpr uint32_t IDENTIFIER  = 0xCAFECAFE;
-static constexpr uint8_t  VERSION     = 0x01;
+static constexpr uint32_t HEADER_SIZE  = 49;
+static constexpr uint8_t IDENTIFIER[4] = {'P','R','L','E'};
+static constexpr uint8_t  VERSION      = 0x01;
 
 static void write_u32_le(std::ostream& out, const uint32_t word)
 {
@@ -124,7 +124,6 @@ void RLE::read_bmp(const std::filesystem::path& path)
     // YpixelsPerM 	    4 bytes 	002Ah 	vertical resolution: Pixels/meter
     // Colors Used 	    4 bytes 	002Eh 	Number of actually used colors. For a 8-bit / pixel bitmap this will be 100h or 256.
     // Important Colors 4 bytes 	0032h 	Number of important colors 0 = all
-    
     
     int32_t width_s = 0;
     int32_t height_s = 0;
@@ -420,7 +419,7 @@ bool RLE::write_prle(const std::filesystem::path& path)
         }
         
         // Header: 4 + 1 + 4 + 4 + (8 + 4) * 3 = 49 bytes
-        file.write(reinterpret_cast<const char*>(&IDENTIFIER), 4);
+        file.write(reinterpret_cast<const char*>(IDENTIFIER), 4);
         file.write(reinterpret_cast<const char*>(&VERSION), 1);
 
         // Ancho y alto originales
@@ -456,7 +455,13 @@ bool RLE::write_prle(const std::filesystem::path& path)
     return EXIT_SUCCESS;
 }
 
-// TODO: Solo debugging. Llevar al archivo main.cpp y parsear argumentos.
+// TODO: Leer el resultado de la codificacion utilizando hexdump para una imagen chica.
+// TODO: Codificar el decodificador.
+// TODO: Llevar la ejecucion a un archivo ___main__.cpp y parsear argumentos.
+// TODO: Generar un README adecuado.
+// TODO: Generar un archivo Makefile.
+// TODO: Generar un bash para ejecutar los tests.
+// TODO: Agregar verificacion del CRC, si hay tiempo hoy.
 int main()
 {
     RLE rle;
