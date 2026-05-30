@@ -321,18 +321,17 @@ def case_11_debugging(out_dir: str, W: int, H: int):
     # Escribir la secuencia en el canal B (byte offset +0 en BGR)
     offsets = [
         (0,      63,    0x00),   # literal corto max (63 pixeles)
-        (63,     127,   0xFF),   # run corto max (63 pixeles)
-        (127,    190,   0x00),   # literal largo min (64 pixeles)
-        (190,    254,   0xAA),   # run largo min (64 pixeles)
+        (63,     126,   0xDD),   # run corto max (63 pixeles)
+        (126,    190,   0x00),   # literal largo min (64 pixeles)
+        (190,    315,   0xAA),   # run largo min (64 pixeles)
     ]
     for start, end, val in offsets:
         for i in range(start, min(end, W * H)):
             if start == 63 or start == 190:
                 pixels[i * 3 + 0] = val    # canal B en BGR
-            elif start == 0 or start == 127:
+            elif start == 0 or start == 126:
                 value  = 255 if i % 2 == 0 else 0
                 pixels[i * 3 + 0] = value  # canal B en BGR
-
     save_bmp(os.path.join(out_dir, '11_small_debugging.bmp'), W, H, bytes(pixels))    
 
 
@@ -353,7 +352,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     W, H = 2048, 2048
-    w, h = 127, 2
+    w, h = 63, 5
 
     print(f"Generando BMPs {W}×{H} en '{out_dir}/':\n")
     print(f"  {'archivo':40s}  {'dimensión':10s}  {'tamaño':>12s}")

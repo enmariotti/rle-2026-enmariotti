@@ -443,8 +443,8 @@ bool RLE::write_prle(const std::filesystem::path& path)
         write_u32_le(file, static_cast<uint32_t>(this->out.b.size()));
 
         file.write(reinterpret_cast<const char*>(this->out.r.data()), this->out.r.size());
-        file.write(reinterpret_cast<const char*>(this->out.g.data()), this->out.r.size());
-        file.write(reinterpret_cast<const char*>(this->out.b.data()), this->out.r.size());
+        file.write(reinterpret_cast<const char*>(this->out.g.data()), this->out.g.size());
+        file.write(reinterpret_cast<const char*>(this->out.b.data()), this->out.b.size());
 
     } 
     catch (const std::exception& e) 
@@ -455,13 +455,12 @@ bool RLE::write_prle(const std::filesystem::path& path)
     return EXIT_SUCCESS;
 }
 
-// TODO: Leer el resultado de la codificacion utilizando hexdump para una imagen chica.
 // TODO: Codificar el decodificador.
 // TODO: Llevar la ejecucion a un archivo ___main__.cpp y parsear argumentos.
 // TODO: Generar un README adecuado.
 // TODO: Generar un archivo Makefile.
 // TODO: Generar un bash para ejecutar los tests.
-// TODO: Agregar verificacion del CRC, si hay tiempo hoy.
+// TODO: Agregar verificacion del CRC. Tal vez no tiene mucho sentido.
 int main()
 {
     RLE rle;
