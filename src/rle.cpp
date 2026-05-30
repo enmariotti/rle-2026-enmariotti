@@ -48,7 +48,7 @@ static constexpr uint8_t LITERAL_LONG_CODE  = 0xC0;
 static constexpr uint32_t RUN_THRESHOLD  = 3; // Minimo valor de conteo para que existe compresion no nula en un run.
 
 static constexpr uint32_t HEADER_SIZE  = 49;
-static constexpr uint8_t IDENTIFIER[4] = {'P','R','L','E'};
+static constexpr uint32_t IDENTIFIER   = 0xCAFECAFE;
 static constexpr uint8_t  VERSION      = 0x01;
 
 static void write_u32_le(std::ostream& out, const uint32_t word)
@@ -419,7 +419,7 @@ bool RLE::write_prle(const std::filesystem::path& path)
         }
         
         // Header: 4 + 1 + 4 + 4 + (8 + 4) * 3 = 49 bytes
-        file.write(reinterpret_cast<const char*>(IDENTIFIER), 4);
+        file.write(reinterpret_cast<const char*>(&IDENTIFIER), 4);
         file.write(reinterpret_cast<const char*>(&VERSION), 1);
 
         // Ancho y alto originales
@@ -465,8 +465,8 @@ bool RLE::write_prle(const std::filesystem::path& path)
 int main()
 {
     RLE rle;
-    const std::filesystem::path in = "05_gradient.bmp";
-    const std::filesystem::path out = "05_gradient.prle";
+    const std::filesystem::path in = "11_small_debugging.bmp";
+    const std::filesystem::path out = "11_small_debugging.prle";
     rle.encode(in);
     rle.write_prle(out);
     
