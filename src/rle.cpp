@@ -148,17 +148,17 @@ void RLE::read_bmp(const std::filesystem::path& path)
     }
 
     // Dimensiones de la imagen leida
-    this->img.width  = static_cast<uint32_t>(std::abs(width_s));
-    this->img.height = static_cast<uint32_t>(std::abs(height_s));
+    this->img_in.width  = static_cast<uint32_t>(std::abs(width_s));
+    this->img_in.height = static_cast<uint32_t>(std::abs(height_s));
 
     // Dimensionar los vectores de pixeles
-    uint64_t npixels = static_cast<uint64_t>(this->img.width) * static_cast<uint64_t>(this->img.height);
-    this->img.channel.r.resize(npixels);
-    this->img.channel.g.resize(npixels);
-    this->img.channel.b.resize(npixels);
+    uint64_t npixels = static_cast<uint64_t>(this->img_in.width) * static_cast<uint64_t>(this->img_in.height);
+    this->img_in.channel.r.resize(npixels);
+    this->img_in.channel.g.resize(npixels);
+    this->img_in.channel.b.resize(npixels);
 
     // Cada fila de píxeles está alineada a 4 bytes
-    uint32_t row_bytes_raw = this->img.width * CHANNELS;  // Cantidad de bytes por pixel
+    uint32_t row_bytes_raw = this->img_in.width * CHANNELS;  // Cantidad de bytes por pixel
     uint32_t row_stride    = (row_bytes_raw + 3) & ~3U;   // Redondear al proximo multiplo de 4 (i = (i + 3) / 4 * 4;): 
                                                           // https://stackoverflow.com/questions/2022179/c-quick-calculation-of-next-multiple-of-4
     std::vector<uint8_t> row_buf(row_stride);             // Buffer para almacenar las filas.
@@ -167,7 +167,7 @@ void RLE::read_bmp(const std::filesystem::path& path)
 
     uint64_t base = 0;
     uint32_t dst_row = 0; 
-    for (uint32_t row = 0; row < this->img.height; ++row) 
+    for (uint32_t row = 0; row < this->img_in.height; ++row) 
     {
         file.read(reinterpret_cast<char*>(row_buf.data()), row_stride);
 
@@ -183,17 +183,17 @@ void RLE::read_bmp(const std::filesystem::path& path)
         }
         else
         {
-            dst_row = this->img.height - 1 - row; // Inversion
+            dst_row = this->img_in.height - 1 - row; // Inversion
         }
 
-        uint64_t base = static_cast<uint64_t>(dst_row) * static_cast<uint64_t>(this->img.width);
+        uint64_t base = static_cast<uint64_t>(dst_row) * static_cast<uint64_t>(this->img_in.width);
 
-        for (uint32_t col = 0; col < this->img.width; ++col) 
+        for (uint32_t col = 0; col < this->img_in.width; ++col) 
         {
             // BMP almacena BGR
-            this->img.channel.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
-            this->img.channel.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
-            this->img.channel.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
+            this->img_in.channel.b[base + col] = row_buf[col * CHANNELS + CHANNEL_B];
+            this->img_in.channel.g[base + col] = row_buf[col * CHANNELS + CHANNEL_G];
+            this->img_in.channel.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
         }
     }
 }
@@ -343,10 +343,10 @@ bool RLE::encode(const std::filesystem::path& path)
     {
         std::cout << "Leyendo BMP...\n";
         read_bmp(path);
-        std::cout << "  " << this->img.width << "×" << this->img.height
-                  << " pixeles (" << this->img.width * this->img.height * CHANNELS << " bytes)\n";
+        std::cout << "  " << this->img_in.width << "×" << this->img_in.height
+                  << " pixeles (" << this->img_in.width * this->img_in.height * CHANNELS << " bytes)\n";
 
-        const uint64_t npixels = static_cast<uint64_t>(this->img.width) * static_cast<uint64_t>(this->img.height);
+        const uint64_t npixels = static_cast<uint64_t>(this->img_in.width) * static_cast<uint64_t>(this->img_in.height);
         
         std::cout << "Comprimiendo canales (3 hilos)...\n";
         std::string err_r, err_g, err_b;
@@ -370,9 +370,9 @@ bool RLE::encode(const std::filesystem::path& path)
             }
         };
 
-        std::thread t_r(compress_safe, std::ref(this->out.r), this->img.channel.r.data(), npixels, std::ref(err_r));
-        std::thread t_g(compress_safe, std::ref(this->out.g), this->img.channel.g.data(), npixels, std::ref(err_g));
-        std::thread t_b(compress_safe, std::ref(this->out.b), this->img.channel.b.data(), npixels, std::ref(err_b));
+        std::thread t_r(compress_safe, std::ref(this->enc_out.r), this->img_in.channel.r.data(), npixels, std::ref(err_r));
+        std::thread t_g(compress_safe, std::ref(this->enc_out.g), this->img_in.channel.g.data(), npixels, std::ref(err_g));
+        std::thread t_b(compress_safe, std::ref(this->enc_out.b), this->img_in.channel.b.data(), npixels, std::ref(err_b));
 
         t_r.join(); t_g.join(); t_b.join();
 
@@ -382,12 +382,12 @@ bool RLE::encode(const std::filesystem::path& path)
 
         std::cout << "Estadisticas...\n";
         uint64_t total_in  = npixels * CHANNELS;
-        uint64_t total_out = HEADER_SIZE + this->out.r.size() + this->out.g.size() + this->out.b.size();
+        uint64_t total_out = HEADER_SIZE + this->enc_out.r.size() + this->enc_out.g.size() + this->enc_out.b.size();
         double ratio = static_cast<double>(total_in) / static_cast<double>(total_out);
 
-        std::cout << "  Canal R: " << this->out.r.size() << " bytes\n";
-        std::cout << "  Canal G: " << this->out.g.size() << " bytes\n";
-        std::cout << "  Canal B: " << this->out.b.size() << " bytes\n";
+        std::cout << "  Canal R: " << this->enc_out.r.size() << " bytes\n";
+        std::cout << "  Canal G: " << this->enc_out.g.size() << " bytes\n";
+        std::cout << "  Canal B: " << this->enc_out.b.size() << " bytes\n";
         std::cout << "  Total entrada:  " << total_in  << " bytes\n";
         std::cout << "  Total salida:   " << total_out << " bytes\n";
         std::cout << "  Ratio:          " << ratio     << ":1\n";
@@ -406,7 +406,7 @@ bool RLE::write_prle(const std::filesystem::path& path)
     try
     {
         // No genera el archivo, si no se realizo un encode() antes.
-        if ( this->out.r.empty() && this->out.g.empty() && this->out.b.empty() )
+        if ( this->enc_out.r.empty() && this->enc_out.g.empty() && this->enc_out.b.empty() )
         {
             throw std::runtime_error("Todos los canales vacios.");
         }
@@ -423,28 +423,28 @@ bool RLE::write_prle(const std::filesystem::path& path)
         file.write(reinterpret_cast<const char*>(&VERSION), 1);
 
         // Ancho y alto originales
-        write_u32_le(file, this->img.width);
-        write_u32_le(file, this->img.height);
+        write_u32_le(file, this->img_in.width);
+        write_u32_le(file, this->img_in.height);
 
         uint64_t offset_r    = HEADER_SIZE;
-        uint64_t offset_g    = offset_r + this->out.r.size();
-        uint64_t offset_b    = offset_g + this->out.g.size();
+        uint64_t offset_g    = offset_r + this->enc_out.r.size();
+        uint64_t offset_b    = offset_g + this->enc_out.g.size();
 
         // R: Offset y tamaño
         write_u64_le(file, offset_r);
-        write_u32_le(file, static_cast<uint32_t>(this->out.r.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.r.size()));
         
         // G: Offset y tamaño
         write_u64_le(file, offset_g);
-        write_u32_le(file, static_cast<uint32_t>(this->out.g.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.g.size()));
         
         // B: Offset y tamaño    
         write_u64_le(file, offset_b);
-        write_u32_le(file, static_cast<uint32_t>(this->out.b.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.b.size()));
 
-        file.write(reinterpret_cast<const char*>(this->out.r.data()), this->out.r.size());
-        file.write(reinterpret_cast<const char*>(this->out.g.data()), this->out.g.size());
-        file.write(reinterpret_cast<const char*>(this->out.b.data()), this->out.b.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.r.data()), this->enc_out.r.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.g.data()), this->enc_out.g.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.b.data()), this->enc_out.b.size());
 
     } 
     catch (const std::exception& e) 

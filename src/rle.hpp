@@ -66,8 +66,11 @@ struct BMPImage
 class RLE 
 {
     private:
-        BMPImage img; // Imagen leida
-        Channel out; // Canales con la informacion codificada
+        BMPImage img_in;    // Imagen de entrada
+        Channel  enc_out;   // Codificacion de salida
+        
+        Channel  enc_in;     // Codificacion de entrada
+        BMPImage img_out;    // Imagen de salida
 
         /**
          * @brief Funcion de lectura de un archivo BMP.
