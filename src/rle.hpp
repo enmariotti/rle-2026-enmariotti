@@ -93,10 +93,10 @@ struct PRLEFile
 class RLE 
 {
     private:
-        BMPImage img_in;    // Imagen de entrada
-        Channel  enc_out;   // Codificacion de salida
+        BMPImage img_in;     // Imagen de entrada
+        Channel  enc_out;    // Codificacion de salida. TODO: Unificar con el decodificador.
         
-        PRLEFile  enc_in;     // Codificacion de entrada
+        PRLEFile enc_in;     // Codificacion de entrada
         BMPImage img_out;    // Imagen de salida
 
         /**
@@ -127,6 +127,7 @@ class RLE
          * 
          * @param out es una referencia a un vector donde se encuentra la codificacion.
          * @param in  es un puntero a la data de los pixeles.
+         * @param len es la longitud del canal sin codificar.
          */
         void compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_t len);
 
@@ -134,7 +135,17 @@ class RLE
          * @brief Funcion de lectura de un archivo PRLE.
          * 
          */
-        void read_prle(const std::filesystem::path& path); 
+        void read_prle(const std::filesystem::path& path);
+        
+        /**
+         * @brief Tarea de descompresion de un canal individual
+         * 
+         * @param out es una referencia a un vector donde se encuentra la codificacion.
+         * @param in  es un puntero a la data de los pixeles.
+         * @param len es la longitud del canal codificado.
+         * @param expected_pixels es la cantidad de pixeles esperados.
+         */
+        void decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint32_t len, uint64_t expected_pixels);
         
     public:
         /**

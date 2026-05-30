@@ -445,6 +445,140 @@ void RLE::compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_
     flush_literal();
 }
 
+void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint32_t len, uint64_t expected_pixels)
+{
+    uint64_t written = 0;
+    uint32_t i       = 0;
+
+    while (i < len) 
+    {
+        uint8_t  ctrl = in[i++];
+        uint8_t  type = (ctrl & ~FORMAT_MASK) >> 6;     // bits 7..6
+        uint32_t cnt_field = ctrl & FORMAT_MASK;        // bits 5..0
+
+        switch (type) 
+        {
+            case 0:
+            // Run corto: [00 cccccc][value] count = 1..63 
+            { 
+                uint32_t count = cnt_field;
+                if (count == 0)
+                {
+                    throw std::runtime_error("Stream corrupto: count = 0 en run corto");
+                }
+
+                if (i >= len)
+                {
+                    throw std::runtime_error("Stream truncado: falta value en run corto");
+                }
+                
+                uint8_t value = in[i++];
+                if (written + count > expected_pixels)
+                {
+                    throw std::runtime_error("Stream excede el tamaño esperado del canal");
+                }
+
+                out.insert(out.end(), count, value);
+                written += count;
+                break;
+            }
+
+            case 1: 
+            // Run largo: [01 CCCCCC][cccccccc][value] count = 64..16447  (offset + 64)
+            { 
+                if (i >= len)
+                {
+                    throw std::runtime_error("Stream truncado: falta segundo byte en run largo");
+                }
+
+                uint8_t low = in[i++];
+                uint16_t count = (static_cast<uint16_t>(cnt_field) << 8 | low) + (RUN_SHORT_MAX + 1);
+                if (count < (RUN_SHORT_MAX + 1))
+                {
+                    throw std::runtime_error("Stream corrupto: count < 64 en run largo");
+                }
+                
+                if (i >= len)
+                {
+                    throw std::runtime_error("Stream truncado: falta value en run largo");
+                }
+
+                uint8_t value = in[i++];
+                if (written + count > expected_pixels)
+                {
+                    throw std::runtime_error("Stream excede el tamaño esperado del canal");
+                }
+                out.insert(out.end(), count, value);
+                written += count;
+                break;
+            }
+
+            case 2:
+            // Literal corto: [10 cccccc][n values] count = 1..63
+            { 
+                uint32_t count = cnt_field;
+                if (count == 0)
+                {
+                    throw std::runtime_error("Stream corrupto: count = 0 en literal corto");
+                }
+
+                if (i + count > len)
+                {
+                    throw std::runtime_error("Stream truncado: datos insuficientes en literal corto");
+                }
+
+                if (written + count > expected_pixels)
+                {
+                    throw std::runtime_error("Stream excede el tamaño esperado del canal");
+                }
+                out.insert(out.end(), in[i], in[i+count]);
+                written += count;
+                i       += count;
+                break;
+            }
+
+            case 3:
+            // Literal largo: [11 CCCCCC][cccccccc][n values]  count = 64..16447  (offset + 64) 
+            { 
+                if (i >= len)
+                {
+                    throw std::runtime_error("Stream truncado: falta segundo byte en literal largo");
+                }
+
+                uint8_t low = in[i++];
+                uint16_t count = (static_cast<uint16_t>(cnt_field) << 8 | low) + (RUN_SHORT_MAX + 1);
+                if (count < (RUN_SHORT_MAX + 1))
+                {
+                    throw std::runtime_error("Stream corrupto: count < 64 en literal largo");
+                }
+
+                if (i + count > len)
+                {
+                    throw std::runtime_error("Stream truncado: datos insuficientes en literal largo");
+                }
+
+                if (written + count > expected_pixels)
+                {
+                    throw std::runtime_error("Stream excede el tamaño esperado del canal");
+                }
+                out.insert(out.end(), in[i], in[i+count]);
+                written += count;
+                i       += count;
+                break;
+            }
+        }
+    }
+
+    if (written != expected_pixels)
+    {
+        throw std::runtime_error("Canal incompleto: se esperaban "
+                                 + std::to_string(expected_pixels)
+                                 + " pixeles, se obtuvieron "
+                                 + std::to_string(written));
+
+    }
+}
+
 bool RLE::encode(const std::filesystem::path& path)
 {
     try 
@@ -564,12 +698,14 @@ bool RLE::write_prle(const std::filesystem::path& path)
 }
 
 // TODO: Codificar el decodificador.
+// TODO: Unificar el formato de variables internas.
+// TODO: Probar codificador-decodificador.
 // TODO: Llevar la ejecucion a un archivo ___main__.cpp y parsear argumentos.
 // TODO: Generar un README adecuado.
 // TODO: Generar un archivo Makefile.
 // TODO: Generar un bash para ejecutar los tests.
 // TODO: Generar imagen vacia para ver que no explote el codificador.
-// TODO: Agregar verificacion del CRC. Tal vez no tiene mucho sentido.
+// TODO: Agregar verificacion del CRC. Dejarlo como un deseable.
 int main()
 {
     RLE rle;
