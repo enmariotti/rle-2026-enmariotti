@@ -13,6 +13,15 @@
 #include <vector>
 #include <filesystem>
 
+/**
+ * @brief Enum que refleja la salida de ciertas funciones.
+ * 
+ */
+enum class Status 
+{
+    OK      = EXIT_SUCCESS,   // 0
+    FAIL    = EXIT_FAILURE    // 1
+};
 
 /**
  * @brief Estructura que representa la informacion por canales.
@@ -20,19 +29,7 @@
  */
 struct Channel 
 {
-    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B - fila 0: arriba de la imagen
-
-    /**
-     * @brief Construct a new Channels object
-     * 
-     */
-    Channel() {};
-    
-    /**
-     * @brief Destroy the Channels object
-     * 
-     */
-    ~Channel() {};
+    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B. Fila 0: arriba de la imagen
 };
 
 /**
@@ -77,7 +74,10 @@ struct PRLEFile
      * @brief Construct a new PRLEFile object
      * 
      */
-    PRLEFile(): width(0), height(0) {};
+    PRLEFile(): width(0), height(0),
+                offset_r(0),  size_r(0),
+                offset_g(0),  size_g(0),
+                offset_b(0),  size_b(0) {};
     
     /**
      * @brief Destroy the PRLEFile object
@@ -94,7 +94,7 @@ class RLE
 {
     private:
         BMPImage img_in;     // Imagen de entrada
-        Channel  enc_out;    // Codificacion de salida. TODO: Unificar con el decodificador.
+        PRLEFile enc_out;    // Codificacion de salida
         
         PRLEFile enc_in;     // Codificacion de entrada
         BMPImage img_out;    // Imagen de salida
@@ -145,7 +145,7 @@ class RLE
          * @param len es la longitud del canal codificado.
          * @param expected_pixels es la cantidad de pixeles esperados.
          */
-        void decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint32_t len, uint64_t expected_pixels);
+        void decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, const uint32_t len, const uint64_t expected_pixels);
         
     public:
         /**
@@ -161,27 +161,36 @@ class RLE
         ~RLE(){};
 
         /**
-         * @brief Funcion de codificacion de la imagen
+         * @brief Funcion de codificacion de la imagen. 
          * 
-         * @return true si la tarea ejecuto son errores.
-         * @return false si la tarea ejecuto con errores.
+         * @param path es el archivo de entrada-
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        bool encode(const std::filesystem::path& path);
+        Status encode(const std::filesystem::path& path);
 
         /**
+         * @brief Funcion de escritura del archivo comprimido. 
          * 
-         * @return true si la tarea ejecuto son errores.
-         * @return false si la tarea ejecuto con errores.
+         * @param path es el archivo de entrada-
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        bool write_prle(const std::filesystem::path& path);
+        Status write_prle(const std::filesystem::path& path);
 
         /**
-         * @brief Funcion de decodificacion de la imagen
+         * @brief Funcion de decodificacion de la imagen. 
          * 
-         * @return true si la tarea ejecuto son errores.
-         * @return false si la tarea ejecuto con errores.
+         * @param path es el archivo de entrada-
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        bool decode(const std::filesystem::path& path);
+        Status decode(const std::filesystem::path& path);
+
+        /**
+         * @brief Funcion de escritura de la imagen reconstruida. 
+         * 
+         * @param path es el archivo de entrada.
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        Status write_bmp(const std::filesystem::path& path);
         
 };
 

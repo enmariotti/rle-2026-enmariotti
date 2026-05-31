@@ -61,7 +61,7 @@ static void write_u32_le(std::ofstream& out, const uint32_t word)
     out.write(reinterpret_cast<char*>(buf), 4);
 }
 
-static void read_u32_le(std::ifstream& in, uint32_t word) 
+static void read_u32_le(std::ifstream& in, uint32_t& word) 
 {
     uint8_t buf[4];
     in.read(reinterpret_cast<char*>(buf), 4);
@@ -85,7 +85,7 @@ static void write_u64_le(std::ofstream& out, uint64_t word)
     out.write(reinterpret_cast<char*>(buf), 8);
 }
 
-static void read_u64_le(std::ifstream& in, uint64_t word) 
+static void read_u64_le(std::ifstream& in, uint64_t& word) 
 {
     uint8_t buf[8];
     in.read(reinterpret_cast<char*>(buf), 8);
@@ -108,16 +108,18 @@ void RLE::read_prle(const std::filesystem::path& path)
         throw std::runtime_error( "No se pudo abrir: " + path.filename().string() );  
     } 
 
-    // Cantidad de bytes del archivo completo.
+    // Cantidad de bytes del header completo.
+    uint8_t buf[HEADER_SIZE] = {0};
+    file.read(reinterpret_cast<char*>(buf), HEADER_SIZE);
     if (file.gcount() != HEADER_SIZE)
     {
-        throw std::runtime_error("Archivo demasiado corto para contener un header válido");
+        throw std::runtime_error("Archivo demasiado corto para contener un header valido");
     }
 
     file.seekg(0, std::ios::beg); // 0 bytes desde la posición inicial
 
     // Identificador
-    uint32_t identifier;
+    uint32_t identifier = 0;
     read_u32_le(file, identifier);
     if (identifier != IDENTIFIER)
     {
@@ -125,7 +127,7 @@ void RLE::read_prle(const std::filesystem::path& path)
     }
 
     // Version
-    uint8_t version;
+    uint8_t version = 0;
     file.read(reinterpret_cast<char*>(&version), 1);
     if (version != VERSION)
     {
@@ -173,13 +175,30 @@ void RLE::read_prle(const std::filesystem::path& path)
     }
 
     file.seekg(this->enc_in.offset_r, std::ios::beg); // offset_r bytes desde la posición inicial
+    this->enc_in.channel.r.resize(this->enc_in.size_r);
     file.read(reinterpret_cast<char*>(this->enc_in.channel.r.data()), this->enc_in.size_r);
-    
+    if (file.gcount() != this->enc_in.size_r)
+    {
+        throw std::runtime_error("No se pudo leer el canal R completo.");
+    }
+
     file.seekg(this->enc_in.offset_g, std::ios::beg); // offset_g bytes desde la posición inicial
+    this->enc_in.channel.g.resize(this->enc_in.size_g);
     file.read(reinterpret_cast<char*>(this->enc_in.channel.g.data()), this->enc_in.size_g);
+    if (file.gcount() != this->enc_in.size_g)
+    {
+        throw std::runtime_error("No se pudo leer el canal G completo.");
+    }
     
     file.seekg(this->enc_in.offset_b, std::ios::beg); // offset_b bytes desde la posición inicial
+    this->enc_in.channel.b.resize(this->enc_in.size_b);
     file.read(reinterpret_cast<char*>(this->enc_in.channel.b.data()), this->enc_in.size_b);
+    if (file.gcount() != this->enc_in.size_b)
+    {
+        throw std::runtime_error("No se pudo leer el canal B completo.");
+    }
+
+    file.close();
 
 }
 
@@ -304,6 +323,8 @@ void RLE::read_bmp(const std::filesystem::path& path)
             this->img_in.channel.r[base + col] = row_buf[col * CHANNELS + CHANNEL_R];
         }
     }
+
+    file.close();
 }
 
 void RLE::emit_run(std::vector<uint8_t>& out, uint32_t count, uint8_t value) 
@@ -445,8 +466,12 @@ void RLE::compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_
     flush_literal();
 }
 
-void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint32_t len, uint64_t expected_pixels)
+void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, const uint32_t len, const uint64_t expected_pixels)
 {
+
+    out.clear();                    // Limpiar estado
+    out.reserve(expected_pixels);   // Pixeles esperados
+
     uint64_t written = 0;
     uint32_t i       = 0;
 
@@ -531,7 +556,7 @@ void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint3
                 {
                     throw std::runtime_error("Stream excede el tamaño esperado del canal");
                 }
-                out.insert(out.end(), in[i], in[i+count]);
+                out.insert(out.end(), in + i, in + i + count);
                 written += count;
                 i       += count;
                 break;
@@ -561,7 +586,7 @@ void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint3
                 {
                     throw std::runtime_error("Stream excede el tamaño esperado del canal");
                 }
-                out.insert(out.end(), in[i], in[i+count]);
+                out.insert(out.end(),  in + i, in + i + count);
                 written += count;
                 i       += count;
                 break;
@@ -579,7 +604,7 @@ void RLE::decompress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint3
     }
 }
 
-bool RLE::encode(const std::filesystem::path& path)
+Status RLE::encode(const std::filesystem::path& path)
 {
     try 
     {
@@ -612,9 +637,9 @@ bool RLE::encode(const std::filesystem::path& path)
             }
         };
 
-        std::thread t_r(compress_safe, std::ref(this->enc_out.r), this->img_in.channel.r.data(), npixels, std::ref(err_r));
-        std::thread t_g(compress_safe, std::ref(this->enc_out.g), this->img_in.channel.g.data(), npixels, std::ref(err_g));
-        std::thread t_b(compress_safe, std::ref(this->enc_out.b), this->img_in.channel.b.data(), npixels, std::ref(err_b));
+        std::thread t_r(compress_safe, std::ref(this->enc_out.channel.r), this->img_in.channel.r.data(), npixels, std::ref(err_r));
+        std::thread t_g(compress_safe, std::ref(this->enc_out.channel.g), this->img_in.channel.g.data(), npixels, std::ref(err_g));
+        std::thread t_b(compress_safe, std::ref(this->enc_out.channel.b), this->img_in.channel.b.data(), npixels, std::ref(err_b));
 
         t_r.join(); t_g.join(); t_b.join();
 
@@ -624,12 +649,12 @@ bool RLE::encode(const std::filesystem::path& path)
 
         std::cout << "Estadisticas...\n";
         uint64_t total_in  = npixels * CHANNELS;
-        uint64_t total_out = HEADER_SIZE + this->enc_out.r.size() + this->enc_out.g.size() + this->enc_out.b.size();
+        uint64_t total_out = HEADER_SIZE + this->enc_out.channel.r.size() + this->enc_out.channel.g.size() + this->enc_out.channel.b.size();
         double ratio = static_cast<double>(total_in) / static_cast<double>(total_out);
 
-        std::cout << "  Canal R: " << this->enc_out.r.size() << " bytes\n";
-        std::cout << "  Canal G: " << this->enc_out.g.size() << " bytes\n";
-        std::cout << "  Canal B: " << this->enc_out.b.size() << " bytes\n";
+        std::cout << "  Canal R: " << this->enc_out.channel.r.size() << " bytes\n";
+        std::cout << "  Canal G: " << this->enc_out.channel.g.size() << " bytes\n";
+        std::cout << "  Canal B: " << this->enc_out.channel.b.size() << " bytes\n";
         std::cout << "  Total entrada:  " << total_in  << " bytes\n";
         std::cout << "  Total salida:   " << total_out << " bytes\n";
         std::cout << "  Ratio:          " << ratio     << ":1\n";
@@ -638,17 +663,86 @@ bool RLE::encode(const std::filesystem::path& path)
     catch (const std::exception& e) 
     {
         std::cerr << "Error: " << e.what() << "\n";
-        return EXIT_FAILURE;
+        return Status::FAIL;
     }
-    return EXIT_SUCCESS;
+    return Status::OK;
 }
 
-bool RLE::write_prle(const std::filesystem::path& path)
+Status RLE::decode(const std::filesystem::path& path)
+{
+    try 
+    {
+        std::cout << "Leyendo PRLE...\n";
+        read_prle(path);
+        
+        std::cout << "  " << this->enc_in.width << "×" << this->enc_in.height
+        << " pixeles (" << this->enc_in.width * this->enc_in.height * CHANNELS << " bytes)\n";
+                
+        const uint64_t npixels = static_cast<uint64_t>(this->enc_in.width) * static_cast<uint64_t>(this->enc_in.height);
+
+        std::cout << "Descomprimiendo canales (3 hilos)...\n";
+        std::string err_r, err_g, err_b;
+
+        auto decompress_safe = [&](std::vector<uint8_t>& out,
+                                   const uint8_t* in,
+                                   const uint32_t len,
+                                   const uint64_t expected_pixels,
+                                   std::string& err) 
+        {
+            try 
+            {
+                decompress_channel(out, in, len, expected_pixels);
+            } 
+            catch (const std::exception& e)
+            {
+                err = e.what();
+            }
+            catch (...) 
+            {
+                err = "Error desconocido.";
+            }
+        };
+
+        std::thread t_r(decompress_safe, std::ref(this->img_out.channel.r), 
+                        this->enc_in.channel.r.data(), this->enc_in.size_r, npixels, std::ref(err_r));
+        std::thread t_g(decompress_safe, std::ref(this->img_out.channel.g),
+                        this->enc_in.channel.g.data(), this->enc_in.size_g, npixels, std::ref(err_g));
+        std::thread t_b(decompress_safe, std::ref(this->img_out.channel.b),
+                        this->enc_in.channel.b.data(), this->enc_in.size_b, npixels, std::ref(err_b));
+
+        t_r.join(); t_g.join(); t_b.join();
+
+        this->img_out.width = this->enc_in.width;
+        this->img_out.height = this->enc_in.height;
+
+        if (!err_r.empty()) throw std::runtime_error("Canal R: " + err_r);
+        if (!err_g.empty()) throw std::runtime_error("Canal G: " + err_g);
+        if (!err_b.empty()) throw std::runtime_error("Canal B: " + err_b);
+
+        std::cout << "Estadisticas...\n";
+        uint64_t total_in  = this->enc_in.size_r + this->enc_in.size_g + this->enc_in.size_b + HEADER_SIZE;
+        uint64_t total_out = npixels * 3;
+        std::cout << "  Total comprimido:    " << total_in  << " bytes\n";
+        std::cout << "  Total descomprimido: " << total_out << " bytes\n";
+        std::cout << "Listo.\n";
+    } 
+    catch (const std::exception& e) 
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return Status::FAIL;
+    }
+    return Status::OK;
+
+}
+
+Status RLE::write_prle(const std::filesystem::path& path)
 {
     try
     {
         // No genera el archivo, si no se realizo un encode() antes.
-        if ( this->enc_out.r.empty() && this->enc_out.g.empty() && this->enc_out.b.empty() )
+        if ( this->enc_out.channel.r.empty() &&
+             this->enc_out.channel.g.empty() &&
+             this->enc_out.channel.b.empty() )
         {
             throw std::runtime_error("Todos los canales vacios.");
         }
@@ -669,50 +763,152 @@ bool RLE::write_prle(const std::filesystem::path& path)
         write_u32_le(file, this->img_in.height);
 
         uint64_t offset_r    = HEADER_SIZE;
-        uint64_t offset_g    = offset_r + this->enc_out.r.size();
-        uint64_t offset_b    = offset_g + this->enc_out.g.size();
+        uint64_t offset_g    = offset_r + this->enc_out.channel.r.size();
+        uint64_t offset_b    = offset_g + this->enc_out.channel.g.size();
 
         // R: Offset y tamaño
         write_u64_le(file, offset_r);
-        write_u32_le(file, static_cast<uint32_t>(this->enc_out.r.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.channel.r.size()));
         
         // G: Offset y tamaño
         write_u64_le(file, offset_g);
-        write_u32_le(file, static_cast<uint32_t>(this->enc_out.g.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.channel.g.size()));
         
         // B: Offset y tamaño    
         write_u64_le(file, offset_b);
-        write_u32_le(file, static_cast<uint32_t>(this->enc_out.b.size()));
+        write_u32_le(file, static_cast<uint32_t>(this->enc_out.channel.b.size()));
 
-        file.write(reinterpret_cast<const char*>(this->enc_out.r.data()), this->enc_out.r.size());
-        file.write(reinterpret_cast<const char*>(this->enc_out.g.data()), this->enc_out.g.size());
-        file.write(reinterpret_cast<const char*>(this->enc_out.b.data()), this->enc_out.b.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.channel.r.data()), this->enc_out.channel.r.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.channel.g.data()), this->enc_out.channel.g.size());
+        file.write(reinterpret_cast<const char*>(this->enc_out.channel.b.data()), this->enc_out.channel.b.size());
 
     } 
     catch (const std::exception& e) 
     {
         std::cerr << "Error: " << e.what() << "\n";
-        return EXIT_FAILURE;
+        return Status::FAIL;
     }
-    return EXIT_SUCCESS;
+    return Status::OK;
 }
 
-// TODO: Codificar el decodificador.
-// TODO: Unificar el formato de variables internas.
-// TODO: Probar codificador-decodificador.
+Status RLE::write_bmp(const std::filesystem::path& path)
+{
+    try
+    {
+        // No genera el archivo, si no se realizo un decode() antes.
+        if ( this->img_out.channel.r.empty() &&
+             this->img_out.channel.g.empty() &&
+             this->img_out.channel.b.empty() )
+        {
+            throw std::runtime_error("Todos los canales vacios.");
+        }
+
+        // Abrir el archivo. Manejar posibles errores.
+        std::ofstream file(path, std::ios::binary);
+        if (!file)
+        {
+            throw std::runtime_error( "No se pudo abrir: " + path.filename().string() );  
+        }
+        
+        uint32_t row_bytes_raw = this->img_out.width * 3;
+        uint32_t row_stride    = (row_bytes_raw + 3) & ~3U;
+        uint32_t pad           = row_stride - row_bytes_raw;
+        uint32_t pixel_data_sz = row_stride * this->img_out.height;
+        uint32_t pixel_offset  = 14 + 40;
+        uint32_t file_size     = pixel_offset + pixel_data_sz;
+
+        // Manejar header de imagen BMP (14 bytes)
+        // Header 	14 bytes 	  	Windows Structure: BITMAPFILEHEADER
+        // Signature 	2 bytes 	0000h 	'BM'
+        // FileSize 	4 bytes 	0002h 	File size in bytes
+        // reserved 	4 bytes 	0006h 	unused (=0)
+        // DataOffset 	4 bytes 	000Ah 	Offset from beginning of file to the beginning of the bitmap data
+        // File header (14 bytes)
+        file.write("BM", 2);
+        write_u32_le(file, file_size);
+        write_u32_le(file, 0);
+        write_u32_le(file, pixel_offset);
+
+        // InfoHeader 	    40 bytes 	  	    Windows Structure: BITMAPINFOHEADER
+        // Size 	        4 bytes 	000Eh 	Size of InfoHeader = 40 
+        // Width 	        4 bytes 	0012h 	Horizontal width of bitmap in pixels
+        // Height 	        4 bytes 	0016h 	Vertical height of bitmap in pixels
+        // Planes 	        2 bytes 	001Ah 	Number of Planes (=1)
+        // Bits Per Pixel 	2 bytes 	001Ch 	Bits per Pixel used to store palette entry information. This also identifies in an indirect way the number of possible colors. Possible values are:
+        //                                       1 = monochrome palette. NumColors = 1  
+        //                                       4 = 4bit palletized. NumColors = 16  
+        //                                       8 = 8bit palletized. NumColors = 256 
+        //                                      16 = 16bit RGB. NumColors = 65536
+        //                                      24 = 24bit RGB. NumColors = 16M
+        // Compression 	    4 bytes 	001Eh 	Type of Compression  
+        //                                      0 = BI_RGB   no compression  
+        //                                      1 = BI_RLE8 8bit RLE encoding  
+        //                                      2 = BI_RLE4 4bit RLE encoding
+        // ImageSize 	    4 bytes 	0022h 	(compressed) Size of Image 
+        //                                      It is valid to set this = 0 if Compression = 0
+        // XpixelsPerM 	    4 bytes 	0026h 	horizontal resolution: Pixels/meter
+        // YpixelsPerM 	    4 bytes 	002Ah 	vertical resolution: Pixels/meter
+        // Colors Used 	    4 bytes 	002Eh 	Number of actually used colors. For a 8-bit / pixel bitmap this will be 100h or 256.
+        // Important Colors 4 bytes 	0032h 	Number of important colors 0 = all
+        write_u32_le(file, 40);
+        write_u32_le(file, static_cast<int32_t>(this->img_out.width));
+        write_u32_le(file, static_cast<uint32_t>(-static_cast<int32_t>(this->img_out.height)));
+        
+        uint8_t planes_bpp[4] = {1, 0, 24, 0};
+        file.write(reinterpret_cast<char*>(planes_bpp), 4);
+        write_u32_le(file, 0);           // BI_RGB
+        write_u32_le(file, pixel_data_sz);
+        write_u32_le(file, 2835);        // X pixels per meter
+        write_u32_le(file, 2835);        // Y pixels per meter
+        write_u32_le(file, 0);           // colores en tabla
+        write_u32_le(file, 0);           // colores importantes
+
+        // Datos de píxeles: intercalar R, G, B → BGR (formato BMP)
+        const uint8_t padding[3] = {0, 0, 0};
+        for (uint32_t row = 0; row < this->img_out.height; ++row) 
+        {
+            const uint64_t base = static_cast<uint64_t>(row) * static_cast<uint64_t>(this->img_out.width);
+            for (uint32_t col = 0; col < this->img_out.width; ++col) 
+            {
+                uint64_t idx = base + col;
+                uint8_t pixel[3] = { this->img_out.channel.b[idx], 
+                                     this->img_out.channel.g[idx],
+                                     this->img_out.channel.r[idx] };  // BGR
+                file.write(reinterpret_cast<char*>(pixel), 3);
+            }
+            if (pad > 0)
+            {
+                file.write(reinterpret_cast<const char*>(padding), pad);
+            }
+                
+        }
+
+    } 
+    catch (const std::exception& e) 
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return Status::FAIL;
+    }
+    return Status::OK;
+}
+
 // TODO: Llevar la ejecucion a un archivo ___main__.cpp y parsear argumentos.
 // TODO: Generar un README adecuado.
 // TODO: Generar un archivo Makefile.
 // TODO: Generar un bash para ejecutar los tests.
 // TODO: Generar imagen vacia para ver que no explote el codificador.
-// TODO: Agregar verificacion del CRC. Dejarlo como un deseable.
 int main()
 {
     RLE rle;
-    const std::filesystem::path in = "11_small_debugging.bmp";
-    const std::filesystem::path out = "11_small_debugging.prle";
+    std::filesystem::path in = "05_gradient.bmp";
+    std::filesystem::path out = "05_gradient.prle";
     rle.encode(in);
     rle.write_prle(out);
-    
+ 
+    in = "05_gradient.prle";
+    out = "05_gradient_copia.bmp";
+    rle.decode(in);
+    rle.write_bmp(out);
+
     return 0;
 }
