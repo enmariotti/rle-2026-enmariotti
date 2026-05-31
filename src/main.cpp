@@ -6,34 +6,34 @@
 
 int main(int argc, char* argv[]) 
 {
-    CLI::App app{"Codificador PRLE. "};
-    app.require_option(1);              // exactamente una operación obligatoria
- 
+    CLI::App app{"Codificador PRLE."};
+
+    bool do_encode = false, do_decode = false;
     std::filesystem::path entrada, salida;
- 
-    // --encode
-    auto* encode = app.add_option_group("encode");
-    encode->add_flag("--encode", "Codificar imagen BMP.");
-    encode->add_option("entrada", entrada, "Archivo de entrada")->required();
-    encode->add_option("salida",  salida,  "Archivo de salida")->required();
- 
-    // --decode
-    auto* decode = app.add_option_group("decode");
-    decode->add_flag("--decode", "Decodificar archivo PRLE.");
-    decode->add_option("entrada", entrada, "Archivo de entrada")->required();
-    decode->add_option("salida",  salida,  "Archivo de salida")->required();
+
+    app.add_flag("--encode", do_encode, "Codificar imagen BMP.");
+    app.add_flag("--decode", do_decode, "Decodificar archivo PRLE.");
+    app.add_option("entrada", entrada, "Archivo de entrada")->required();
+    app.add_option("salida",  salida,  "Archivo de salida")->required();
 
     CLI11_PARSE(app, argc, argv);
+
+    // Validación manual
+    if (do_encode == do_decode) 
+    {
+        std::cerr << "Error: No es posible ejecutar --encode y --decode simultaneamente.\n";
+        return EXIT_FAILURE;
+    }
  
     RLE rle;
     try 
     {
-        if (app.got_subcommand(encode))
+        if (do_encode)
         {
             rle.encode(entrada);
             rle.write_prle(salida);
         }
-        else if (app.got_subcommand(decode))
+        else if (do_decode)
         {
             rle.decode(entrada);
             rle.write_bmp(salida);

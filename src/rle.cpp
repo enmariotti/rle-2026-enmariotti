@@ -891,7 +891,3 @@ Status RLE::write_bmp(const std::filesystem::path& path)
     }
     return Status::OK;
 }
-
-// TODO: Generar un README adecuado.
-// TODO: Generar un bash para ejecutar los tests.
-// TODO: Generar imagen vacia para ver que no explote el codificador.
