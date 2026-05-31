@@ -782,6 +782,7 @@ Status RLE::write_prle(const std::filesystem::path& path)
         file.write(reinterpret_cast<const char*>(this->enc_out.channel.g.data()), this->enc_out.channel.g.size());
         file.write(reinterpret_cast<const char*>(this->enc_out.channel.b.data()), this->enc_out.channel.b.size());
 
+        file.close();
     } 
     catch (const std::exception& e) 
     {
@@ -882,6 +883,8 @@ Status RLE::write_bmp(const std::filesystem::path& path)
             }
                 
         }
+
+        file.close();
 
     } 
     catch (const std::exception& e) 
