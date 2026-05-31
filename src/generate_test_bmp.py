@@ -371,6 +371,8 @@ def main():
     case_10_large_run_boundary(out_dir, W, H)
     case_11_debugging(out_dir, w, h)
 
+    save_bmp(os.path.join(out_dir, '11_sin_pixeles.bmp'), 0, 0, bytearray())
+
     print(f"\nTotal: 10 archivos BMP generados.")
 
 if __name__ == '__main__':
