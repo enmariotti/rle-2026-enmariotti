@@ -892,23 +892,6 @@ Status RLE::write_bmp(const std::filesystem::path& path)
     return Status::OK;
 }
 
-// TODO: Llevar la ejecucion a un archivo ___main__.cpp y parsear argumentos.
 // TODO: Generar un README adecuado.
-// TODO: Generar un archivo Makefile.
 // TODO: Generar un bash para ejecutar los tests.
 // TODO: Generar imagen vacia para ver que no explote el codificador.
-int main()
-{
-    RLE rle;
-    std::filesystem::path in = "05_gradient.bmp";
-    std::filesystem::path out = "05_gradient.prle";
-    rle.encode(in);
-    rle.write_prle(out);
- 
-    in = "05_gradient.prle";
-    out = "05_gradient_copia.bmp";
-    rle.decode(in);
-    rle.write_bmp(out);
-
-    return 0;
-}
