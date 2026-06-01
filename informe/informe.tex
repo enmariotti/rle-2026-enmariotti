@@ -1,0 +1,376 @@
+
+\documentclass[10pt,a4paper]{article}
+\usepackage{cite}
+\usepackage[latin1]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{subfigure}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage{nicefrac}
+%\decimalpoint
+
+
+\algnewcommand\algorithmicforeach{\textbf{para cada}}
+\algdef{SE}[FOREACH]{ForEach}{EndForEach}[1]
+    {\algorithmicforeach\ #1\ \textbf{hacer}}
+    {\textbf{fin para}}
+
+\algnewcommand{\LineComment}[1]{\State \(\triangleright\) \textit{#1}}
+
+
+\begin{document}
+	\title{\textbf{Trabajo Práctico Integrador:
+		 \\ Compresor de imágenes RLE} 
+		 \\ Programación II
+		 \\ Ingeniería en Computación (UNRN)}
+	
+	\author{Enrique Nicanor Mariotti (mariottien@gmail.com)}
+	\date{Junio 2026}
+\maketitle
+
+\begin{abstract}
+
+El propósito de este trabajo es desarrollar un programa que pueda comprimir y descomprimir imágenes. El mismo recibe un archivo con una imagen en un formato estándar (\textit{.bmp}), y genera un nuevo archivo de tamaño menor o igual al original. A su vez, si el programa recibe un archivo con una imagen en el formato propio (\textit{.prle}), genera un archivo en el formato estándar original (\textit{.bmp}), sin presentar perdidas de información. La solución plateada se enfoca en el caso de las imágenes que tienen fondo plano o transparente (es decir, con muchos píxeles que tienen el mismo valor). Los requerimientos para la implementación de la misma fueron que el algoritmo pueda manejar imágenes grandes de hasta $2048 \times 2048$ y que la ejecución este en el orden de los segundos.
+\end{abstract}
+
+\section{Introducción} \label{sec:intro} 
+
+Se describe aquí el diseño e implementación de un compresor de imágenes color \textit{.bmp} de 24 bits basado en \emph{Run-Length Encoding} (RLE) planar \cite{data_compression}, con ejecución concurrente simple.
+
+El RLE es una técnica de compresión sin pérdida que reemplaza secuencias de valores repetidos (\emph{runs}) por un par (cantidad, valor), reduciendo significativamente el tamaño de datos con zonas uniformes. Su eficiencia depende de la frecuencia y longitud de esas secuencias: imágenes con fondos planos o áreas de color sólido obtienen ratios muy elevados, mientras que
+imágenes con ruido aleatorio pueden experimentar expansión.
+
+La variante implementada combina dos decisiones de diseño principales. En primer lugar, la separación planar: en lugar de operar sobre los píxeles intercalados en formato BGR, como los almacena el \textit{.bmp}, la imagen se descompone en tres planos independientes (R, G, B) antes de comprimir.
+
+Esto maximiza la longitud de los runs en zonas de color uniforme, ya que los \emph{runs} se pueden presentar de manera independiente en cada canal, y son mas probables que los \emph{runs} de los $3$ canales simultáneamente.
+
+En segundo lugar, la concurrencia: al no existir dependencias entre los tres canales, cada uno es comprimido en un hilo independiente, reduciendo el tiempo de procesamiento en arquitecturas que lo soporten.
+
+El formato de salida recibe la extensión \textit{.prle} (\emph{Planar RLE}) y es específico de este proyecto.
+
+\section{Formato}
+
+\subsection{Header}
+
+El archivo comienza con un header de 49 bytes en orden little-endian:
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{@{}rrlp{6.5cm}@{}}
+    \toprule
+    \textbf{Offset} & \textbf{Tamaño} & \textbf{Tipo} & \textbf{Campo} \\
+    \midrule
+     0 &  4 & \texttt{uint32} & Identificador (\texttt{0xCAFECAFE}) \\
+     4 &  1 & \texttt{uint8}  & Versión (\texttt{0x01}) \\
+     5 &  4 & \texttt{uint32} & Ancho de la imagen en píxeles \\
+     9 &  4 & \texttt{uint32} & Alto de la imagen en píxeles \\
+    13 &  8 & \texttt{uint64} & Offset del canal R dentro del archivo \\
+    21 &  4 & \texttt{uint32} & Tamaño comprimido del canal R en bytes \\
+    25 &  8 & \texttt{uint64} & Offset del canal G dentro del archivo \\
+    33 &  4 & \texttt{uint32} & Tamaño comprimido del canal G en bytes \\
+    37 &  8 & \texttt{uint64} & Offset del canal B dentro del archivo \\
+    45 &  4 & \texttt{uint32} & Tamaño comprimido del canal B en bytes \\
+    \bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+El identificador permite detectar archivos inválidos antes de intentar la decodificación. Los offsets permiten acceder a cada canal de forma independiente en tiempo $\mathcal{O}(1)$ sin recorrer el archivo completo. Los tamaños exactos de cada canal eliminan la necesidad de marcadores de fin de stream de datos.
+
+A continuación del header se almacenan los datos comprimidos de los tres canales en forma contigua:
+
+\[
+\underbrace{\text{Header}}_{\text{49 B}}
+\;\Big|\;
+\underbrace{\text{Datos R}}_{\text{size\_r B}}
+\;\Big|\;
+\underbrace{\text{Datos G}}_{\text{size\_g B}}
+\;\Big|\;
+\underbrace{\text{Datos B}}_{\text{size\_b B}}
+\]
+
+Aquí, los canales se tratan como un vector unidimensional de datos de dimension \texttt{width} $\times$ \texttt{height}, donde los pixeles se leen desde la esquina superior izquierda de la imagen, de izquierda a derecha, y de arriba hacia abajo.
+
+Notar que el orden de los canales es el inverso al usado en el formato \textit{.bmp} \cite{bmp_format}.
+
+\subsection{Tokens}
+
+Cada canal comprimido es un stream de tokens \cite{rle_format}. El tipo de cada token queda
+determinado por los dos bits más significativos del byte de control (byte menos significativo):
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{@{}ccll@{}}
+    \toprule
+    \textbf{Bits 7..6} & \textbf{Tipo} & \textbf{Formato} & \textbf{Rango de count} \\
+    \midrule
+    \texttt{00} & Run corto     & \texttt{[00 cccccc][value]}                   & $1 \leq n \leq 63$ \\
+    \texttt{01} & Run largo     & \texttt{[01 CCCCCC][cccccccc][value]}          & $64 \leq n \leq 16447$ \\
+    \texttt{10} & Literal corto & \texttt{[10 cccccc][v$_0$\ldots v$_N$]}        & $1 \leq n \leq 63$ \\
+    \texttt{11} & Literal largo & \texttt{[11 CCCCCC][cccccccc][v$_0$\ldots v$_N$]} & $64 \leq n \leq 16447$ \\
+    \bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+Los tokens cortos usan los 6 bits restantes del byte de control directamente como count. Los tokens largos extienden el count con un byte adicional, formando un campo de 14 bits con un desplazamiento (\emph{offset}) de $+64$:
+
+\[
+\text{count} = \bigl(\texttt{CCCCCC} \ll 8 \;\big|\; \texttt{cccccccc}\bigr) + 64
+\]
+
+Este desplazamiento permite que el rango largo comience exactamente donde termina el corto, sin solapamiento ni desperdicio de códigos.
+
+La existencia de dos tipos de elementos \textbf{run} y \textbf{literal} permite no penalizar áreas donde existe mucha variación con run de largo $1$, lo que añade información irrelevante a la codificación. Por otro lado, existencia de elementos cortos y largos ahorra $1$ byte en la codificación de los tokens, dependiendo del largo de los mismos.
+
+\subsection{Interpretación}
+
+Un token del tipo \textbf{run} indica que el valor \texttt{value} se repite exactamente \texttt{count} veces en el stream de salida. El decoder lo expande escribiendo \texttt{count} copias del byte.
+
+Un token de \textbf{literal} indica que los \texttt{count} bytes que siguen al encabezado son valores distintos que se copian directamente al stream de salida sin modificación.
+
+\subsection{Restricciones}
+
+\begin{itemize}
+    \item \texttt{count = 0} no esta incluido en la codificacion, ya que los run largos presentan un \textit{offset} de $+64$ píxeles. En si mismo un \texttt{count = 0} no tiene significado definido. 
+    \item Runs mayores a $16447$ píxeles se codifican como múltiples
+          tokens de run consecutivos con el mismo valor.
+    \item El tamaño exacto de cada canal descomprimido se conoce de
+          antemano a partir de \texttt{width} $\times$ \texttt{height},
+          por lo que no se necesita ningún token de fin de canal.
+\end{itemize}
+
+\section{Algoritmo de codificación}
+
+La función \texttt{compress\_channel()} recibe el plano de un canal como
+un arreglo lineal de bytes (un byte por píxel) y produce el stream
+comprimido correspondiente.
+
+\subsection{Estructuras auxiliares}
+
+\begin{itemize}
+    \item \textbf{out}: Buffer de salida donde se escriben los tokens generados.
+    \item \textbf{lit\_buf}: Buffer acumulador de píxeles literales. Se vuelca a \texttt{out} como un token literal al detectar un run o al final del stream.
+    \item \textbf{flush\_literal()}: Función auxiliar que emite el contenido de \texttt{lit\_buf} como un token literal y lo vacía. No realiza ninguna acción si \texttt{lit\_buf} está vacío.
+\end{itemize}
+
+\subsection{Criterio de codificación}
+
+Un run de longitud $n$ es \emph{rentable} si el ahorro en bytes respecto
+a emitirlo como literal es positivo. 
+
+Son particularmente de interés, las secuencias de datos de menor longitud, ya que en las mismas es donde se presentan los casos menos rentables.
+
+Con el formato definido:
+
+\begin{itemize}
+    \item Run corto: 2 bytes fijos independientemente de $n$ (para $1 \leq n \leq 63$).
+    \item Literal corto de $n$ bytes: $1 + n$ bytes (para $1 \leq n \leq 63$)
+\end{itemize}
+
+\subsubsection{Tratamiento del run de longitud 1}
+
+En cualquier caso, codificar $1$ píxel produce la misma longitud ya sea si se codifica como run o literal. En esta implementación elegimos hacerlo como literal, de manera tal de que los literales pueden concatenarse si fuera el caso.
+
+\subsubsection{Tratamiento del run de longitud 2}
+
+Un run de $2$ píxeles ocupa 2 bytes como run, pero 3 bytes como literal, por lo que a primera vista siempre seria ideal codificarlo como run.
+
+Sin embargo, si existe un bloque de literales abierto en \texttt{lit\_buf}, cerrarlo para emitir el run introduce un token de control adicional. En ese caso es preferible absorber los 2 píxeles en el literal abierto:
+
+\[
+\underbrace{\text{literal}(N) + \text{run}(2) + \text{literal}(M)}_{\text{$(1+N) + 2 + (1+M)$ bytes}}
+\quad > \quad
+\underbrace{\text{literal}(N+2+M)}_{\text{$1+(N+2)+M$ bytes}}
+\]
+
+Si en cambio no hay literal abierto, el run de 2 se emite directamente como run (2 bytes versus los 3 bytes que costaría un nuevo literal).
+
+\subsubsection{Tratamiento del run de longitud 3}
+
+En cualquier caso, codificar $3$ píxeles o mas produce menor longitud si se tratan como run que como literales.
+
+%\subsubsection{Algoritmo de codificación}
+
+\begin{algorithm}[H]
+\caption{\textsc{compress\_channel}$(in,\, L)$}
+\begin{algorithmic}[1]
+
+\State $out \leftarrow$ buffer vacío
+\State $\mathit{lit\_buf} \leftarrow$ buffer vacío
+
+\vspace{0.4em}
+\Function{flush\_literal}{}
+    \If{$\mathit{lit\_buf}$ no está vacío}
+        \State \Call{emit\_literal}{$out,\; \mathit{lit\_buf}$}
+        \State vaciar $\mathit{lit\_buf}$
+    \EndIf
+\EndFunction
+
+\vspace{0.4em}
+\State $i \leftarrow 0$
+\While{$i < L$} \Comment{ longitud del canal}
+
+    \LineComment{Medir el run que comienza en la posición $i$}
+    \State $v \leftarrow in[i]$
+    \State $j \leftarrow i + 1$
+    \While{$j < L$ \textbf{ y } $in[j] = v$}
+        \State $j \leftarrow j + 1$
+    \EndWhile
+    \State $n \leftarrow j - i$ \Comment{longitud del run}
+
+    \vspace{0.4em}
+    \If{$n \geq 3$} \Comment{run $n \geq 3$}
+        \State \Call{flush\_literal()}{}
+        \State \Call{emit\_run}{$out,\; n,\; v$}
+
+    \ElsIf{$n = 2$} \Comment{run de $n = 2$}
+        \If{$\mathit{lit\_buf}$ está vacío}
+            \State \Call{emit\_run}{$out,\; 2,\; v$}
+        \Else
+            \LineComment{Absorber en literal abierto evita un token extra}
+            \LineComment{Tener cuidado de no desbordar lit\_buf}
+            \State agregar $v$ a $\mathit{lit\_buf}$
+            \If{$|\mathit{lit\_buf}| = \texttt{LITERAL\_LONG\_MAX}$}
+                \State \Call{flush\_literal}{}
+            \EndIf
+            \State agregar $v$ a $\mathit{lit\_buf}$
+            \If{$|\mathit{lit\_buf}| = \texttt{LITERAL\_LONG\_MAX}$}
+                \State \Call{flush\_literal}{}
+            \EndIf
+        \EndIf
+
+    \Else \Comment{literal de $n = 1$}
+        \State agregar $v$ a $\mathit{lit\_buf}$
+        \If{$|\mathit{lit\_buf}| = \texttt{LITERAL\_LONG\_MAX}$}
+            \State \Call{flush\_literal}{}
+        \EndIf
+    \EndIf
+
+    \State $i \leftarrow j$
+\EndWhile
+
+\vspace{0.4em}
+\State \Call{flush\_literal}{} \Comment{agregar literales pendientes al final}
+\State \Return $out$
+
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Consideraciones}
+
+\begin{itemize}
+\item La función \texttt{lit\_buf} nunca supera \texttt{LITERAL\_LONG\_MAX} bytes entre dos instrucciones consecutivas, el flush se realiza inmediatamente 	después de cada \texttt{push} que alcanza el límite.
+
+\item Considerando el offset de $+64$, \texttt{count = 0} nunca es emitido, el run mínimo es $2$ y el literal mínimo es $1$, ambos detectados por las condiciones de guarda en \texttt{emit\_run()} y \texttt{emit\_literal()}.
+
+\item Todo byte del stream de entrada aparece exactamente una vez en el stream de salida, ya sea como parte de un run o de un literal.
+\end{itemize}
+
+\section{Análisis de casos representativos}
+
+La tabla siguiente resume el costo en bytes de salida para distintos
+patrones de entrada para ilustrar diversos escenarios que pueden encontrarse:
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+    \toprule
+    \textbf{Secuencia} & \textbf{Bytes de entrada} &
+    \textbf{Bytes de salida} & \textbf{Ratio} \\
+    \midrule
+    \texttt{A A A A} (run $\geq$ 3)          		& 4  & 2 & 2 \\
+    \texttt{A B C D} (literales)  		     		& 4  & 5 & $0.8$ \\
+    \texttt{A A B B} (run $=$ 2)    	 	 		& 4  & 4 & 1 \\
+    \texttt{A B B C} (run $=$ 2, entre literales)   & 4  & 5 & $0,8$ \\
+    \texttt{A A B C C} (literal, entre run $=$ 2)   & 5  & 6 & $0,83$ \\
+    \bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+Nótese que cuando hay un literal abierto al encontrar un run de 2, en ese contexto es absorbido, y de esa manera existe un ahorro de $1$ byte.
+
+\begin{description}
+\item[Mejor caso.] Canal completamente uniforme (fondo plano de \texttt{width} $\times$ \texttt{height} píxeles con el mismo valor). El stream entero se codifica como una sucesión de runs largos de $16447$ píxeles. Para una imagen de $2048 \times 2048$:
+
+\[
+            \left\lceil \frac{4\,194\,304}{16\,447} \right\rceil = 256 \text{ tokens}
+            \;\times\; 3 \text{ bytes} = 768 \text{ bytes}
+            \quad \Rightarrow \quad \text{ratio} \approx 5461{:}1
+\]
+
+Esta compresión solo aplica a un solo canal plano, sin considerar tampoco el overhead de cada formato.
+
+\item[Peor caso.] Canal con cadenas literales largas, ya sea porque no hay píxeles iguales consecutivos, o porque hay runs de largo $2$ absorbidos por las cadenas de literales. Para una imagen de $2048 \times 2048$:
+
+\[
+            \left\lceil \frac{4\,194\,304}{16\,447} \right\rceil = 256 \text{ tokens}
+            \; \times \; (16\,447  \;+ \; 2) \text{ bytes} = 4\,210\,944 \text{ bytes}
+            \quad \Rightarrow \quad \text{ratio} \approx 0.99{:}1
+\]
+
+\pagebreak
+
+\section{Resultados}
+
+La Fig.\ref{fig:casos} presenta algunos casos de pruebas en imágenes de $2048 \times 2048$.  Los resultados del algoritmo, considerando todos los canales y los respectivos hearders del formato se resumen a continuación:
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{@{}cccc@{}}
+    \toprule
+    \textbf{Test} & \textbf{Bytes entrada} &
+    \textbf{Bytes salida} & \textbf{Ratio} \\
+    \midrule
+    \texttt{Test a} & $12\,582\,966$ & $2\,353$ 		& $5347$ 	\\
+    \texttt{Test b} & $12\,582\,966$ & $2\,353$ 		& $5347$ 	\\
+    \texttt{Test c} & $12\,582\,966$ & $12\,584\,490$ 	& $0,99$ 	\\
+    \texttt{Test d} & $12\,582\,966$ & $125\,124$ 		& $100$ 	\\
+    \texttt{Test e} & $12\,582\,966$ & $1\,050\,161$ 	& $12$ 	\\
+    \texttt{Test f} & $12\,582\,966$ & $2\,353$ 		& $5347$ 	\\
+    \texttt{Test g} & $12\,582\,966$ & $12\,584\,497$ 	& $0,99$ 	\\
+    \texttt{Test h} & $12\,582\,966$ & $12\,584\,497$ 	& $0,99$ 	\\
+    \texttt{Test i} & $12\,582\,966$ & $5\,033\,221$ 	& $2,5$ 	\\
+    \bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+\section{Conclusiones}
+
+El compresor desarrollado demuestra que puede alcanzar ratios de compresión elevados en el dominio para el que fue concebido; imágenes de gran tamaño con extensas zonas de color uniforme. La separación planar es una decisión de gran impacto sobre el ratio final, ya que transforma el problema de comprimir tripletes, donde la probabilidad de repetición es baja, en el de comprimir tres streams independientes de un solo canal, donde la probabilidad de repetición es mayor. En cuanto al rendimiento, el modelo de tres hilos independientes sobre los canales R, G y B es naturalmente apto para la tarea ya que hay ausencia de dependencias entre canales.
+
+El formato de token de cuatro tipos, con count variable de uno o dos bytes, resuelve el principal problema de la expansión en zonas de alta variabilidad. Los tokens literales permiten transportar secuencias de píxeles distintos con un overhead de uno o dos bytes de control por bloque, manteniendo la expansión máxima muy por debajo del doble del tamaño original incluso en el peor caso teórico. Los resultados sobre imágenes generadas, corroboran las estimaciones teóricas. La reserva del valor \texttt{count = 0} preserva la posibilidad de extender el formato sin romper la compatibilidad con streams existentes.
+
+Como trabajo futuro, la incorporación de partición por bloques permitiría aumentar el grado de paralelismo más allá de los tres canales, mejorar la localidad de caché en imágenes muy grandes y habilitar la descompresión por región. Otros tipos de compresión se pueden realizar posteriormente a la aplicación de este algoritmo, para obtener tamaños aun menores. Dotar al formato de una comprobación de tipo CRC permitiría incorporar la comprobación de integridad de datos del archivo comprimido en tiempo de ejecución, con un costo extra muy bajo.
+
+\begin{figure}
+    \centering
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_1.png}} 
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_2.png}} 
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_3.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_4.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_5.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_6.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_7.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_8.png}}
+    \subfigure[]{\includegraphics[width=0.3\textwidth]{images/test_9.png}}
+    \caption{(a) Fondo plano idéntico entre canales (b) Fondo plano diferenciado entre canales (c) Ruido uniforme (d) Ruido uniforme sobre fondo plano (e) Gradiente sobre el canal azul (f) Lineas horizontales (g) Lineas verticales (h) Cuadricula (i) Píxeles aleatorios aislados}
+    \label{fig:casos}
+\end{figure}
+
+\end{description}
+
+\bibliographystyle{apalike}
+\renewcommand{\refname}{Referencias}
+\bibliography{mibib}
+
+\end{document}
