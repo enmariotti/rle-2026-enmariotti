@@ -14,7 +14,7 @@
 #include <filesystem>
 
 /**
- * @brief Enum que refleja la salida de ciertas funciones.
+ * @brief Enum que refleja el estado de la salida de ciertas funciones.
  * 
  */
 enum class Status 
@@ -29,14 +29,14 @@ enum class Status
  */
 struct Channel 
 {
-    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B. Fila 0: arriba de la imagen
+    std::vector<uint8_t> r, g, b; // Pixeles en orden R, G, B. Pixel 0: Izquierda-Arriba
 };
 
 /**
- * @brief Estructura que representa una imagen BMP.
+ * @brief Estructura que representa una imagen.
  * 
  */
-struct BMPImage 
+struct Image 
 {
     uint32_t width;
     uint32_t height;
@@ -44,67 +44,237 @@ struct BMPImage
     Channel channel;
     
     /**
-     * @brief Construct a new BMPImage object
+     * @brief Construct a new Image object
      * 
      */
-    BMPImage(): width(0), height(0) {};
+    Image(): width(0), height(0) {};
     
     /**
-     * @brief Destroy the BMPImage object
+     * @brief Destroy the Image object
      * 
      */
-    ~BMPImage() {};
+    ~Image() {};
 };
 
 /**
- * @brief Estructura que representa un archivo PRLE.
+ * @brief Estructura que representa un archivo codificado.
  * 
  */
-struct PRLEFile 
+struct EncodedData 
 {
     uint32_t width;
     uint32_t height;
-    uint64_t offset_r;  uint32_t size_r;
-    uint64_t offset_g;  uint32_t size_g;
-    uint64_t offset_b;  uint32_t size_b;
+    std::vector<uint8_t> metadata;
 
     Channel channel;
     
     /**
-     * @brief Construct a new PRLEFile object
+     * @brief Construct a new EncodedData object
      * 
      */
-    PRLEFile(): width(0), height(0),
-                offset_r(0),  size_r(0),
-                offset_g(0),  size_g(0),
-                offset_b(0),  size_b(0) {};
+    EncodedData(): width(0), height(0) {};
     
     /**
-     * @brief Destroy the PRLEFile object
+     * @brief Destroy the EncodedData object
      * 
      */
-    ~PRLEFile() {};
+    ~EncodedData() {};
 };
 
 /**
- * @brief Clase que representa el encoder RLE.
+ * @brief Estructura generica que encapsula las funciones de manejo de imagenes.
  * 
  */
-class RLE 
+class ImageHandler
 {
-    private:
-        BMPImage img_in;     // Imagen de entrada
-        PRLEFile enc_out;    // Codificacion de salida
-        
-        PRLEFile enc_in;     // Codificacion de entrada
-        BMPImage img_out;    // Imagen de salida
+    public:
+        /**
+         * @brief Funcion de lectura de una imagen. 
+         * 
+         * @param path es el archivo de entrada. 
+         * @return Image es la imagen retornada.
+         */
+        virtual Image read(const std::filesystem::path& path) = 0;
 
         /**
-         * @brief Funcion de lectura de un archivo BMP.
+         * @brief Funcion de escritura de una imagen. 
+         * 
+         * @param path es el archivo de entrada.
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status write(const std::filesystem::path& path, const Image& image) = 0;
+
+        /**
+         * @brief Construct a new ImageHandler object
          * 
          */
-        void read_bmp(const std::filesystem::path& path);
+        ImageHandler() {};
 
+        /**
+         * @brief Destroy the ImageHandler object
+         * 
+         */
+        virtual ~ImageHandler() {};
+
+};
+
+/**
+ * @brief Estructura que encapsula las funciones de manejo de archivos comprimidos.
+ * 
+ */
+class EncodedHandler
+{
+    public:
+        /**
+         * @brief Funcion de lectura de un archivo codificado. 
+         * 
+         * @param path es el archivo de entrada. 
+         * @return EncodedData son los datos retornados.
+         */
+        virtual EncodedData read(const std::filesystem::path& path) = 0;
+
+        /**
+         * @brief Funcion de escritura de un archivo codificado. 
+         * 
+         * @param path es el archivo de entrada.
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status write(const std::filesystem::path& path, const EncodedData& data) = 0;
+
+        /**
+         * @brief Construct a new EncodedHandler object
+         * 
+         */
+        EncodedHandler() {};
+
+        /**
+         * @brief Destroy the EncodedHandler object
+         * 
+         */
+        virtual ~EncodedHandler() {};
+
+};
+
+/**
+ * @brief Estructura que representa un codificador generico.
+ * 
+ */
+class Encoder
+{
+    protected:
+        ImageHandler * img;
+        EncodedHandler * enc;
+        
+    public:
+        /**
+         * @brief Funcion de codificacion de la imagen. 
+         * 
+         * @param path es el archivo de entrada-
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status encode(const std::filesystem::path& path) = 0;
+
+        /**
+         * @brief Funcion de decodificacion de la imagen. 
+         * 
+         * @param path es el archivo de entrada-
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status decode(const std::filesystem::path& path) = 0;
+
+        /**
+         * @brief Construct a new Encoder object
+         * 
+         */
+        Encoder(ImageHandler* _img, EncodedHandler* _enc) : img(_img), enc(_enc) {};
+
+        /**
+         * @brief Destroy the Encoder object
+         * 
+         */
+        virtual ~Encoder() {};
+};
+
+/**
+ * @brief Estructura que encapsula las funciones de manejo de imagenes BMP.
+ * 
+ */
+class BMPHandler : public ImageHandler
+{
+    public:
+        /**
+         * @brief Funcion de lectura de una imagen. 
+         * 
+         * @param path es el archivo de entrada. 
+         * @return Image es la imagen retornada.
+         */
+        virtual Image read(const std::filesystem::path& path) override;
+
+        /**
+         * @brief Funcion de escritura de una imagen. 
+         * 
+         * @param path es el archivo de entrada.
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status write(const std::filesystem::path& path, const Image& image) override;
+
+        /**
+         * @brief Construct a new BMPHandler object
+         * 
+         */
+        BMPHandler() {};
+
+        /**
+         * @brief Destroy the BMPHandler object
+         * 
+         */
+        virtual ~BMPHandler() override {};
+};
+
+/**
+ * @brief Estructura que encapsula las funciones de manejo de archivos comprimidos.
+ * 
+ */
+class PRLEncodedHandler : public EncodedHandler
+{
+    public:
+        /**
+         * @brief Funcion de lectura de un archivo codificado. 
+         * 
+         * @param path es el archivo de entrada. 
+         * @return EncodedData son los datos retornados.
+         */
+        virtual EncodedData read(const std::filesystem::path& path) override;
+
+        /**
+         * @brief Funcion de escritura de un archivo codificado. 
+         * 
+         * @param path es el archivo de entrada.
+         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
+         */
+        virtual Status write(const std::filesystem::path& path, const EncodedData& data) override;
+
+        /**
+         * @brief Construct a new EncodedHandler object
+         * 
+         */
+        PRLEncodedHandler() {};
+
+        /**
+         * @brief Destroy the EncodedHandler object
+         * 
+         */
+        virtual ~PRLEncodedHandler() override {};
+
+};
+
+/**
+ * @brief Clase que representa el encoder PLREncoder.
+ * 
+ */
+class PLREncoder : public Encoder
+{
+    private:
         /**
          * @brief Funcion de emision de runs segun el formato especificado.
          * 
@@ -132,12 +302,6 @@ class RLE
         void compress_channel(std::vector<uint8_t>& out, const uint8_t* in, uint64_t len);
 
         /**
-         * @brief Funcion de lectura de un archivo PRLE.
-         * 
-         */
-        void read_prle(const std::filesystem::path& path);
-        
-        /**
          * @brief Tarea de descompresion de un canal individual
          * 
          * @param out es una referencia a un vector donde se encuentra la codificacion.
@@ -152,13 +316,17 @@ class RLE
          * @brief Construct a new Encoder R L E object
          * 
          */
-        RLE(){};
+        PLREncoder() : Encoder(new BMPHandler(), new PRLEncodedHandler()) {};
         
         /**
          * @brief Destroy the Encoder R L E object
          * 
          */
-        ~RLE(){};
+        virtual ~PLREncoder() override 
+        {
+            delete img;
+            delete enc;
+        };
 
         /**
          * @brief Funcion de codificacion de la imagen. 
@@ -166,15 +334,7 @@ class RLE
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        Status encode(const std::filesystem::path& path);
-
-        /**
-         * @brief Funcion de escritura del archivo comprimido. 
-         * 
-         * @param path es el archivo de entrada-
-         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
-         */
-        Status write_prle(const std::filesystem::path& path);
+        virtual Status encode(const std::filesystem::path& path) override;
 
         /**
          * @brief Funcion de decodificacion de la imagen. 
@@ -182,15 +342,7 @@ class RLE
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        Status decode(const std::filesystem::path& path);
-
-        /**
-         * @brief Funcion de escritura de la imagen reconstruida. 
-         * 
-         * @param path es el archivo de entrada.
-         * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
-         */
-        Status write_bmp(const std::filesystem::path& path);
+        virtual Status decode(const std::filesystem::path& path) override;
         
 };
 
