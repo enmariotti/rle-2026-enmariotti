@@ -834,7 +834,7 @@ Status PLREncoder::encode(const std::filesystem::path& in, const std::filesystem
 {
     try 
     { 
-        // Allocar memoria TODO: Destruir
+        // Allocar memoria
         Image       * img_input  = new Image(); 
         EncodedData * enc_output = new EncodedData(); 
         
@@ -903,11 +903,6 @@ Status PLREncoder::encode(const std::filesystem::path& in, const std::filesystem
         std::cerr << "Error: " << e.what() << "\n";
         return Status::FAIL;
     }
-    catch (const std::bad_alloc& e) 
-    {
-        std::cerr << "Error: " << e.what() << "\n";
-        return Status::FAIL;
-    }
 
     return Status::OK;
 }
@@ -916,7 +911,7 @@ Status PLREncoder::decode(const std::filesystem::path& in, const std::filesystem
 {
     try 
     {
-        // Allocar memoria TODO: Destruir
+        // Allocar memoria
         EncodedData * enc_input  = new EncodedData(); 
         Image       * img_output = new Image(); 
         
@@ -986,6 +981,14 @@ Status PLREncoder::decode(const std::filesystem::path& in, const std::filesystem
         std::cout << "  Total comprimido:    " << total_in  << " bytes\n";
         std::cout << "  Total descomprimido: " << total_out << " bytes\n";
         std::cout << "Listo.\n";
+
+        // Guardar los datos
+        this->img->write(out, *img_output);
+
+        // Liberar memoria
+        delete enc_input;
+        delete img_output;
+
     } 
     catch (const std::exception& e) 
     {

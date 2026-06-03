@@ -25,18 +25,16 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
  
-    RLE rle;
+    PLREncoder prle;
     try 
     {
         if (do_encode)
         {
-            rle.encode(entrada);
-            rle.write_prle(salida);
+            prle.encode(entrada, salida);
         }
         else if (do_decode)
         {
-            rle.decode(entrada);
-            rle.write_bmp(salida);
+            prle.decode(entrada, salida);
         }
     } 
     catch (const std::exception& e) 
