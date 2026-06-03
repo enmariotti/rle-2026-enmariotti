@@ -874,6 +874,9 @@ Status PLREncoder::encode(const std::filesystem::path& in, const std::filesystem
 
         t_r.join(); t_g.join(); t_b.join();
 
+        enc_output->width  = img_input->width;
+        enc_output->height = img_input->height;
+
         if (!err_r.empty()) throw std::runtime_error("Canal R: " + err_r);
         if (!err_g.empty()) throw std::runtime_error("Canal G: " + err_g);
         if (!err_b.empty()) throw std::runtime_error("Canal B: " + err_b);
