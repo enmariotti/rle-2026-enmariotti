@@ -172,7 +172,7 @@ class Encoder
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        virtual Status encode(const std::filesystem::path& path) = 0;
+        virtual Status encode(const std::filesystem::path& in, const std::filesystem::path& out) = 0;
 
         /**
          * @brief Funcion de decodificacion de la imagen. 
@@ -180,7 +180,7 @@ class Encoder
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        virtual Status decode(const std::filesystem::path& path) = 0;
+        virtual Status decode(const std::filesystem::path& in, const std::filesystem::path& out) = 0;
 
         /**
          * @brief Construct a new Encoder object
@@ -334,7 +334,7 @@ class PLREncoder : public Encoder
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        virtual Status encode(const std::filesystem::path& path) override;
+        virtual Status encode(const std::filesystem::path& in, const std::filesystem::path& out) override;
 
         /**
          * @brief Funcion de decodificacion de la imagen. 
@@ -342,7 +342,7 @@ class PLREncoder : public Encoder
          * @param path es el archivo de entrada-
          * @return Status es el estado de ejecucion de la tarea (OK o FAIL).
          */
-        virtual Status decode(const std::filesystem::path& path) override;
+        virtual Status decode(const std::filesystem::path& in, const std::filesystem::path& out) override;
         
 };
 
