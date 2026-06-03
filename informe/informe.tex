@@ -369,6 +369,48 @@ Como trabajo futuro, la incorporación de partición por bloques permitiría aument
 
 \end{description}
 
+\appendix
+\section{Arquitectura del código}
+
+El diseño sigue un patrón de abstracción por capas, separando las responsabilidades en tres niveles. La Fig. \ref{fig:uml} muestra el diagrama de clases del proyecto en formato UML.
+
+\subsection{Estructura general}
+
+Hay tres jerarquías de clases abstractas, cada una con funcionalidades diferentes:
+
+\begin{itemize}
+    \item \texttt{ImageHandler}: Funciones de lectura y escritura de imágenes genéricas.
+    \item \texttt{EncodedHandler}: Funciones de lectura y escritura de códigos genéricas.
+    \item \texttt{Encoder}: Maneja la codificación y decodificación, usando las dos anteriores para el manejo de archivos.
+\end{itemize}
+
+\texttt{Encoder} no hereda de los handlers, sino que los compone como punteros, lo que permite intercambiarlos libremente. \texttt{PLREncoder} es la única implementación concreta del codificador.
+
+\subsection{Ventajas}
+\begin{itemize}
+    \item \textbf{Expansibilidad}: Para soportar PNG en lugar de BMP, basta con crear una clase \texttt{PNGHandler : public ImageHandler} sin tocar nada más. Lo mismo aplica para nuevos formatos de compresión, por ejemplo creando una clase crear una clase \texttt{LZ77 : public EncodedHandler}.
+    \item \textbf{Bajo acoplamiento}: \texttt{PLREncoder} no conoce los detalles de lectura y escritura, solo trabaja con punteros a esas clases. Esto facilita el mantenimiento.
+    \item \textbf{Separación de responsabilidades}: Cada clase tiene tareas definidas, \texttt{BMPHandler} maneja archivos \textit{.bmp}, \texttt{PRLEncodedHandler} maneja el formato comprimido, y \texttt{PLREncoder} implementa el algoritmo. 
+
+	\item \textbf{Polimorfismo}: Al tipar los miembros \texttt{img} y \texttt{enc} como punteros a la clase base, se podria eventualmente cambiar la implementación en tiempo de ejecución sin modificar la clase.
+\end{itemize}
+
+\subsection{Desventajas}
+
+\begin{itemize}
+    \item \textbf{Gestión manual de memoria}: \texttt{PLREncoder} aloca memoria en el constructor y la libera en el destructor. Esto es propenso a \textit{memory leaks} si hay excepciones intermedias dentro de un proyecto mas grande.
+    \item \textbf{Complejidad}: \texttt{EncodedData} contiene los metadatos de manera genérica, de manera tal de adaptarse a otras implementaciones de códigos. Esto presenta la desventaja de necesitar de un parseo mas complejo en distintas etapas del proceso.
+\end{itemize}
+
+\begin{figure}[H]
+	\hspace{1 cm}
+	\includegraphics[angle=90, scale=.35]{./images/prle_uml.png}
+	\caption{Diagramas de clases UML de la implementación.}
+	\label{fig:uml}
+\end{figure} 
+
+\pagebreak
+
 \bibliographystyle{apalike}
 \renewcommand{\refname}{Referencias}
 \bibliography{mibib}

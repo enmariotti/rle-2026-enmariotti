@@ -1,0 +1,109 @@
+@startuml rle_class_diagram
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam classBackgroundColor #F8F8FF
+skinparam classBorderColor #555555
+skinparam arrowColor #333333
+skinparam shadowing false
+
+' ─── Enums ───────────────────────────────────────────────
+enum Status {
+    OK  = EXIT_SUCCESS
+    FAIL = EXIT_FAILURE
+}
+
+' ─── Data structures ─────────────────────────────────────
+struct Channel {
+    + r : vector<uint8_t>
+    + g : vector<uint8_t>
+    + b : vector<uint8_t>
+}
+
+struct Image {
+    + width  : uint32_t
+    + height : uint32_t
+    + channel : Channel
+    + Image()
+    + ~Image()
+}
+
+struct EncodedData {
+    + width    : uint32_t
+    + height   : uint32_t
+    + metadata : vector<uint8_t>
+    + channel  : Channel
+    + EncodedData()
+    + ~EncodedData()
+}
+
+' ─── Abstract base classes ────────────────────────────────
+abstract class ImageHandler {
+    + {abstract} read(path : filesystem::path) : Image
+    + {abstract} write(path : filesystem::path, image : Image) : Status
+    + ImageHandler()
+    + {abstract} ~ImageHandler()
+}
+
+abstract class EncodedHandler {
+    + {abstract} read(path : filesystem::path) : EncodedData
+    + {abstract} write(path : filesystem::path, data : EncodedData) : Status
+    + EncodedHandler()
+    + {abstract} ~EncodedHandler()
+}
+
+abstract class Encoder {
+    # img : ImageHandler*
+    # enc : EncodedHandler*
+    + {abstract} encode(in : filesystem::path, out : filesystem::path) : Status
+    + {abstract} decode(in : filesystem::path, out : filesystem::path) : Status
+    + Encoder(img : ImageHandler*, enc : EncodedHandler*)
+    + {abstract} ~Encoder()
+}
+
+' ─── Concrete classes ─────────────────────────────────────
+class BMPHandler {
+    + read(path : filesystem::path) : Image
+    + write(path : filesystem::path, image : Image) : Status
+    + BMPHandler()
+    + ~BMPHandler()
+}
+
+class PRLEncodedHandler {
+    + read(path : filesystem::path) : EncodedData
+    + write(path : filesystem::path, data : EncodedData) : Status
+    + PRLEncodedHandler()
+    + ~PRLEncodedHandler()
+}
+
+class PLREncoder {
+    - emit_run(out : vector<uint8_t>&, count : uint32_t, value : uint8_t) : void
+    - emit_literal(out : vector<uint8_t>&, count : uint32_t, data : uint8_t*) : void
+    - compress_channel(out : vector<uint8_t>&, in : uint8_t*, len : uint64_t) : void
+    - decompress_channel(out : vector<uint8_t>&, in : uint8_t*, len : uint32_t, expected_pixels : uint64_t) : void
+    + PLREncoder()
+    + ~PLREncoder()
+    + encode(in : filesystem::path, out : filesystem::path) : Status
+    + decode(in : filesystem::path, out : filesystem::path) : Status
+}
+
+' ─── Inheritance ─────────────────────────────────────────
+ImageHandler    <|-- BMPHandler
+EncodedHandler  <|-- PRLEncodedHandler
+Encoder         <|-- PLREncoder
+
+' ─── Composition / Aggregation ───────────────────────────
+Image       *-- Channel       : channel
+EncodedData *-- Channel       : channel
+
+Encoder     o-- ImageHandler  : img
+Encoder     o-- EncodedHandler : enc
+
+' ─── Dependencies (return types / parameters) ────────────
+ImageHandler  ..> Image        : <<crea>>
+ImageHandler  ..> Status       : <<usa>>
+EncodedHandler ..> EncodedData : <<crea>>
+EncodedHandler ..> Status      : <<usa>>
+Encoder        ..> Status      : <<usa>>
+
+@enduml
