@@ -189,6 +189,13 @@ class Encoder
         Encoder(ImageHandler* _img, EncodedHandler* _enc) : img(_img), enc(_enc) {};
 
         /**
+         * @brief Construct a new Encoder object
+         * 
+         * @param other es la nueva instancia del objeto.
+         */
+        Encoder(const Encoder& other) = delete;
+
+        /**
          * @brief Destroy the Encoder object
          * 
          */
@@ -317,6 +324,13 @@ class PLREncoder : public Encoder
          * 
          */
         PLREncoder() : Encoder(new BMPHandler(), new PRLEncodedHandler()) {};
+
+        /**
+         * @brief Construct a new PLREncoder object
+         * 
+         * @param other 
+         */
+        PLREncoder(const PLREncoder& other): Encoder(new BMPHandler(), new PRLEncodedHandler()) {};
         
         /**
          * @brief Destroy the Encoder R L E object
