@@ -55,9 +55,9 @@ En segundo lugar, la concurrencia: al no existir dependencias entre los tres can
 
 El formato de salida recibe la extensión \textit{.prle} (\emph{Planar RLE}) y es específico de este proyecto.
 
-\section{Formato}
+\section{Formato} \label{sec:formato} 
 
-\subsection{Header}
+\subsection{Header} \label{subsec:header} 
 
 El archivo comienza con un header de 49 bytes en orden little-endian:
 
@@ -100,7 +100,7 @@ Aquí, los canales se tratan como un vector unidimensional de datos de dimension 
 
 Notar que el orden de los canales es el inverso al usado en el formato \textit{.bmp} \cite{bmp_format}.
 
-\subsection{Tokens}
+\subsection{Tokens} \label{subsec:tokens}
 
 Cada canal comprimido es un stream de tokens \cite{rle_format}. El tipo de cada token queda
 determinado por los dos bits más significativos del byte de control (byte menos significativo):
@@ -130,13 +130,13 @@ Este desplazamiento permite que el rango largo comience exactamente donde termin
 
 La existencia de dos tipos de elementos \textbf{run} y \textbf{literal} permite no penalizar áreas donde existe mucha variación con run de largo $1$, lo que añade información irrelevante a la codificación. Por otro lado, existencia de elementos cortos y largos ahorra $1$ byte en la codificación de los tokens, dependiendo del largo de los mismos.
 
-\subsection{Interpretación}
+\subsection{Interpretación} \label{subsec:interpretacion}
 
 Un token del tipo \textbf{run} indica que el valor \texttt{value} se repite exactamente \texttt{count} veces en el stream de salida. El decoder lo expande escribiendo \texttt{count} copias del byte.
 
 Un token de \textbf{literal} indica que los \texttt{count} bytes que siguen al encabezado son valores distintos que se copian directamente al stream de salida sin modificación.
 
-\subsection{Restricciones}
+\subsection{Restricciones} \label{subsec:restricciones}
 
 \begin{itemize}
     \item \texttt{count = 0} no esta incluido en la codificacion, ya que los run largos presentan un \textit{offset} de $+64$ píxeles. En si mismo un \texttt{count = 0} no tiene significado definido. 
@@ -147,13 +147,13 @@ Un token de \textbf{literal} indica que los \texttt{count} bytes que siguen al e
           por lo que no se necesita ningún token de fin de canal.
 \end{itemize}
 
-\section{Algoritmo de codificación}
+\section{Algoritmo de codificación} \label{sec:algoritmo}
 
 La función \texttt{compress\_channel()} recibe el plano de un canal como
 un arreglo lineal de bytes (un byte por píxel) y produce el stream
 comprimido correspondiente.
 
-\subsection{Estructuras auxiliares}
+\subsection{Estructuras auxiliares} \label{subsec:estructuras}
 
 \begin{itemize}
     \item \textbf{out}: Buffer de salida donde se escriben los tokens generados.
@@ -161,7 +161,7 @@ comprimido correspondiente.
     \item \textbf{flush\_literal()}: Función auxiliar que emite el contenido de \texttt{lit\_buf} como un token literal y lo vacía. No realiza ninguna acción si \texttt{lit\_buf} está vacío.
 \end{itemize}
 
-\subsection{Criterio de codificación}
+\subsection{Criterio de codificación} \label{subsec:criterio}
 
 Un run de longitud $n$ es \emph{rentable} si el ahorro en bytes respecto
 a emitirlo como literal es positivo. 
@@ -175,11 +175,11 @@ Con el formato definido:
     \item Literal corto de $n$ bytes: $1 + n$ bytes (para $1 \leq n \leq 63$)
 \end{itemize}
 
-\subsubsection{Tratamiento del run de longitud 1}
+\subsubsection{Tratamiento del run de longitud 1} \label{subsec:run_1}
 
 En cualquier caso, codificar $1$ píxel produce la misma longitud ya sea si se codifica como run o literal. En esta implementación elegimos hacerlo como literal, de manera tal de que los literales pueden concatenarse si fuera el caso.
 
-\subsubsection{Tratamiento del run de longitud 2}
+\subsubsection{Tratamiento del run de longitud 2} \label{subsec:run_2}
 
 Un run de $2$ píxeles ocupa 2 bytes como run, pero 3 bytes como literal, por lo que a primera vista siempre seria ideal codificarlo como run.
 
@@ -193,7 +193,7 @@ Sin embargo, si existe un bloque de literales abierto en \texttt{lit\_buf}, cerr
 
 Si en cambio no hay literal abierto, el run de 2 se emite directamente como run (2 bytes versus los 3 bytes que costaría un nuevo literal).
 
-\subsubsection{Tratamiento del run de longitud 3}
+\subsubsection{Tratamiento del run de longitud 3} \label{subsec:run_3}
 
 En cualquier caso, codificar $3$ píxeles o mas produce menor longitud si se tratan como run que como literales.
 
@@ -264,7 +264,7 @@ En cualquier caso, codificar $3$ píxeles o mas produce menor longitud si se trat
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Consideraciones}
+\subsection{Consideraciones} \label{subsec:consideraciones}
 
 \begin{itemize}
 \item La función \texttt{lit\_buf} nunca supera \texttt{LITERAL\_LONG\_MAX} bytes entre dos instrucciones consecutivas, el flush se realiza inmediatamente 	después de cada \texttt{push} que alcanza el límite.
@@ -274,7 +274,7 @@ En cualquier caso, codificar $3$ píxeles o mas produce menor longitud si se trat
 \item Todo byte del stream de entrada aparece exactamente una vez en el stream de salida, ya sea como parte de un run o de un literal.
 \end{itemize}
 
-\section{Análisis de casos representativos}
+\section{Análisis de casos representativos} \label{sec:casos}
 
 La tabla siguiente resume el costo en bytes de salida para distintos
 patrones de entrada para ilustrar diversos escenarios que pueden encontrarse:
@@ -319,7 +319,7 @@ Esta compresión solo aplica a un solo canal plano, sin considerar tampoco el ove
 
 \pagebreak
 
-\section{Resultados}
+\section{Resultados} \label{sec:resultados}
 
 La Fig.\ref{fig:casos} presenta algunos casos de pruebas en imágenes de $2048 \times 2048$.  Los resultados del algoritmo, considerando todos los canales y los respectivos hearders del formato se resumen a continuación:
 
@@ -344,13 +344,13 @@ La Fig.\ref{fig:casos} presenta algunos casos de pruebas en imágenes de $2048 \t
 \end{center}
 \vspace{0.5em}
 
-\section{Conclusiones}
+\section{Conclusiones} \label{sec:conclusiones}
 
 El compresor desarrollado demuestra que puede alcanzar ratios de compresión elevados en el dominio para el que fue concebido; imágenes de gran tamaño con extensas zonas de color uniforme. La separación planar es una decisión de gran impacto sobre el ratio final, ya que transforma el problema de comprimir tripletes, donde la probabilidad de repetición es baja, en el de comprimir tres streams independientes de un solo canal, donde la probabilidad de repetición es mayor. En cuanto al rendimiento, el modelo de tres hilos independientes sobre los canales R, G y B es naturalmente apto para la tarea ya que hay ausencia de dependencias entre canales.
 
-El formato de token de cuatro tipos, con count variable de uno o dos bytes, resuelve el principal problema de la expansión en zonas de alta variabilidad. Los tokens literales permiten transportar secuencias de píxeles distintos con un overhead de uno o dos bytes de control por bloque, manteniendo la expansión máxima muy por debajo del doble del tamaño original incluso en el peor caso teórico. Los resultados sobre imágenes generadas, corroboran las estimaciones teóricas. La reserva del valor \texttt{count = 0} preserva la posibilidad de extender el formato sin romper la compatibilidad con streams existentes.
+El formato de token de cuatro tipos, con count variable de uno o dos bytes, resuelve el principal problema de la expansión en zonas de alta variabilidad. Los tokens literales permiten transportar secuencias de píxeles distintos con un overhead de uno o dos bytes de control por bloque, manteniendo la expansión máxima muy por debajo del doble del tamaño original incluso en el peor caso teórico. Los resultados sobre imágenes generadas, corroboran las estimaciones teóricas. La reserva del valor \texttt{count = 0} en los formatos cortos, preserva la posibilidad de extender el formato sin romper la compatibilidad con streams existentes.
 
-Como trabajo futuro, la incorporación de partición por bloques permitiría aumentar el grado de paralelismo más allá de los tres canales, mejorar la localidad de caché en imágenes muy grandes y habilitar la descompresión por región. Otros tipos de compresión se pueden realizar posteriormente a la aplicación de este algoritmo, para obtener tamaños aun menores. Dotar al formato de una comprobación de tipo CRC permitiría incorporar la comprobación de integridad de datos del archivo comprimido en tiempo de ejecución, con un costo extra muy bajo.
+Como trabajo futuro, la incorporación de partición por bloques permitiría aumentar el grado de paralelismo más allá de los tres canales, mejorar la localidad de caché en imágenes muy grandes y habilitar la descompresión por región. Otros tipos de compresión se pueden realizar posteriormente a la aplicación de este algoritmo, para obtener tamaños aun menores. Dotar al formato de una comprobación de tipo CRC permitiría incorporar la comprobación de integridad de datos del archivo comprimido en tiempo de ejecución, con un costo extra muy bajo. Adicionalmente, la elección dinámica del recorrido optimo para maximizar la compresión podría mejorar significativamente los resultados de la Sección \ref{sec:resultados}.
 
 \begin{figure}
     \centering
@@ -370,7 +370,7 @@ Como trabajo futuro, la incorporación de partición por bloques permitiría aument
 \end{description}
 
 \appendix
-\section{Arquitectura del código}
+\section{Arquitectura del código} \label{subsec:app1}
 
 El diseño sigue un patrón de abstracción por capas, separando las responsabilidades en tres niveles. La Fig. \ref{fig:uml} muestra el diagrama de clases del proyecto en formato UML.
 
@@ -399,12 +399,12 @@ Hay tres jerarquías de clases abstractas, cada una con funcionalidades diferente
 
 \begin{itemize}
     \item \textbf{Gestión manual de memoria}: \texttt{PLREncoder} aloca memoria en el constructor y la libera en el destructor. Esto es propenso a \textit{memory leaks} si hay excepciones intermedias dentro de un proyecto mas grande.
-    \item \textbf{Complejidad}: \texttt{EncodedData} contiene los metadatos de manera genérica, de manera tal de adaptarse a otras implementaciones de códigos. Esto presenta la desventaja de necesitar de un parseo mas complejo en distintas etapas del proceso.
+    \item \textbf{Complejidad}: \texttt{EncodedData} contiene los metadatos de manera genérica, de manera tal de adaptarse a otras implementaciones de códigos. Esto presenta la desventaja de necesitar de un parseo mas complejo en distintas etapas del proceso. Ademas, esta estructura podría no representar bien todos los tipos de codificaciones posibles.
 \end{itemize}
 
 \begin{figure}[H]
 	\hspace{1 cm}
-	\includegraphics[angle=90, scale=.35]{./images/prle_uml.png}
+	\includegraphics[angle=90, scale=.45]{./images/prle_uml.png}
 	\caption{Diagramas de clases UML de la implementación.}
 	\label{fig:uml}
 \end{figure} 
