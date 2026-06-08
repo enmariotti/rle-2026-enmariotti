@@ -4,12 +4,12 @@
  *
  * Formato de canal:
  *   Run corto:     [00 cccccc][value]               count = 1..63
- *   Run largo:     [01 CCCCCC][cccccccc][value]     count = 64..16447  (offset + 64)
+ *   Run largo:     [01 CCCCCC][cccccccc][value]     count = 64..16447  (offset 64)
  *   Literal corto: [10 cccccc][n values]            count = 1..63
- *   Literal largo: [11 CCCCCC][cccccccc][n values]  count = 64..16447  (offset + 64)
+ *   Literal largo: [11 CCCCCC][cccccccc][n values]  count = 64..16447  (offset 64)
  *
- *   count = 0 en cualquier tipo -> reservado, nunca emitido.
- *   Pixel aislado               -> run de count = 1 o literal de count = 1.
+ *   count = 0 en tipos cortos   -> reservado, nunca emitido.
+ *   Pixel aislado               -> literal de count = 1.
  *   Runs > 16447                -> runs consecutivos del mismo value.
  *
  * Formato del archivo de salida:
@@ -20,10 +20,10 @@
  *   [datos R][datos G][datos B]
  */
 
-static constexpr uint32_t RUN_SHORT_MAX     = 63;      // Valor representable con 6 bits
-static constexpr uint32_t RUN_LONG_MAX      = 16447;   // 63 + 16384 (14 bits + offset 64)
-static constexpr uint32_t LITERAL_SHORT_MAX = 63;
-static constexpr uint32_t LITERAL_LONG_MAX  = 16447;
+static constexpr uint32_t RUN_SHORT_MAX     = 63;      // Max valor representable con 6 bits
+static constexpr uint32_t RUN_LONG_MAX      = 16447;   // 64 + 16383 (14 bits + offset 64)
+static constexpr uint32_t LITERAL_SHORT_MAX = 63;      // Max valor representable con 6 bits
+static constexpr uint32_t LITERAL_LONG_MAX  = 16447;   // 64 + 16383 (14 bits + offset 64)
 
 static constexpr uint32_t OFFSET_R   = 0;
 static constexpr uint32_t SIZE_R     = 8;
@@ -652,12 +652,12 @@ void PLREncoder::compress_channel(std::vector<uint8_t>& out, const uint8_t* in, 
         {
             // Run problematico: igual a 2 pixeles. 
             // A veces es mejor tomarlo como literal y a veces es mejor tomarlo como run.
-            if (run_len == 2) 
+            if (run_len == (RUN_THRESHOLD - 1)) 
             {
                 if (lit_buf.empty()) 
                 {
                     // flush_literal(); // No realiza ninguna accion. 
-                    emit_run(out, 2, value);
+                    emit_run(out, (RUN_THRESHOLD - 1), value);
                 } 
                 else 
                 {
